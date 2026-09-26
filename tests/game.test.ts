@@ -148,7 +148,7 @@ describe('ゲーム用オブジェクト', () => {
       }
     }
     const player = createEntity('game-player');
-    expect(player.components.map((c) => c.type)).toEqual(['player', 'health']);
+    expect(player.components.map((c) => c.type)).toEqual(['player', 'health', 'charAnim']);
   });
 
   it('UI のオブジェクトは kind = ui', () => {

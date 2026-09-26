@@ -1,5 +1,5 @@
 import type { Box3, Object3D, Vector3 } from 'three';
-import type { PlayCameraMode } from '../core/settings';
+import type { PlayCameraMode, QualityLevel } from '../core/settings';
 import type { EntityData, Vec3 } from '../core/types';
 import type { GameState } from '../runtime/GameState';
 import type { PhysicsWorld } from '../runtime/PhysicsWorld';
@@ -12,8 +12,8 @@ import type { PhysicsWorld } from '../runtime/PhysicsWorld';
  * Inspector の UI と Play Mode の実行の両方に自動的に反映される。
  */
 
-/** text = 複数行の文章、sound = 効果音の選択 (組み込み / 音声アセット) */
-export type PropType = 'number' | 'vec3' | 'boolean' | 'select' | 'color' | 'string' | 'text' | 'sound';
+/** text = 複数行の文章、sound = 効果音の選択 (組み込み / 音声アセット)、clips = アニメーションの編集 */
+export type PropType = 'number' | 'vec3' | 'boolean' | 'select' | 'color' | 'string' | 'text' | 'sound' | 'clips';
 
 export interface PropSchema {
   key: string;
@@ -105,6 +105,15 @@ export interface RuntimeAPI {
   gameClear(message?: string): void;
   /** イベントを通知する (Phase 4 のイベントシステム用) */
   emit(event: string, entityId: string, data?: unknown): void;
+  /** 画質 (パーティクルの数などを調整する) */
+  readonly quality: QualityLevel;
+  /** 描画領域の高さ (px)。パーティクルの大きさの計算用 */
+  readonly viewportHeight: number;
+  /** コンポーネントの操作口を登録する (イベントから「再生」などを呼ぶため) */
+  registerController(entityId: string, kind: string, handle: unknown): void;
+  getController<T>(entityId: string, kind: string): T | undefined;
+  /** 使い捨てのエフェクト (爆発など) をその場所に出す */
+  spawnEffect(preset: string, at: Vec3, scale?: number): void;
 }
 
 export interface ComponentContext {
@@ -126,7 +135,7 @@ export interface ComponentDef {
   label: string;
   icon: string;
   description: string;
-  category: 'motion' | 'physics' | 'gameplay' | 'audio' | 'script';
+  category: 'motion' | 'physics' | 'gameplay' | 'audio' | 'effect' | 'script';
   defaults(): Record<string, unknown>;
   schema: PropSchema[];
   /** 同じエンティティに複数付けられるか */

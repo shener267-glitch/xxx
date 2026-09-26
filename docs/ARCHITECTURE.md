@@ -107,6 +107,16 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
   - 知らない種類 (新しいバージョンのデータ) は読み込み時に残し、実行時は無視する
 - シーン切り替えは `PlayController` がランタイムを作り直し、`GameState` を引き継ぐ
 
+### アニメーション・パーティクル (Phase 5)
+
+- キーフレーム: `core/animation.ts` (クリップ = 時刻付きのローカルのトランスフォーム)。コンポーネント「アニメーション」の
+  props に保存し、Inspector の専用エディタ (`ui/panels/animEditor.ts`) で編集。3D ビューのプレビューは
+  `EditorViewport.previewPose()` でデータを変えずに見た目だけ動かす
+- キャラクターの動き: 当たり判定を持つオブジェクト (Group) ではなく、その中のメッシュ (`userData.content`) だけを動かす
+- パーティクル: `engine/particles.ts`。粒は CPU で動かし 1 回の `Points` で描画 (独自シェーダーで粒ごとの大きさ・色)。
+  ワールド座標で動かすのでシーンの直下に置く。エディタでは `EffectPreview` が選択中の発生源を動かす
+- コンポーネント同士・イベントからの操作は `runtime.registerController / getController` (アニメーション・パーティクル)
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と

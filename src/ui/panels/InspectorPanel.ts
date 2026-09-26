@@ -13,6 +13,7 @@ import { actionSheet, toast } from '../overlays';
 import { ColorField, fieldRow, NumberField, section as sectionWidget, Select, Slider, TextArea, TextField, Toggle, Vec3Field } from '../widgets';
 import type { InspectorKit } from './gameInspector';
 import { gameSettingsSection, musicSection, soundField, uiElementSection } from './gameInspector';
+import { clipsEditor } from './animEditor';
 
 type Refresher = () => void;
 
@@ -766,6 +767,8 @@ export class InspectorPanel {
     const label = schema.unit ? `${schema.label} (${schema.unit})` : schema.label;
     const hint = schema.hint;
     switch (schema.type) {
+      case 'clips':
+        return clipsEditor(this.kit, entityId, compId);
       case 'text': {
         const t = new TextArea({ title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
         this.bind(() => t.set(String(get() ?? '')));

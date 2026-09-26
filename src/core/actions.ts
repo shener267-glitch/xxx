@@ -411,7 +411,7 @@ export function setComponentEnabled(editor: Editor, id: string, componentId: str
   );
 }
 
-export function setComponentProp(editor: Editor, id: string, componentId: string, key: string, value: unknown, merge = true): boolean {
+export function setComponentProp(editor: Editor, id: string, componentId: string, key: string, value: unknown, merge = true, label = 'コンポーネントの設定を変更'): boolean {
   return updateEntities(
     editor,
     [id],
@@ -419,7 +419,7 @@ export function setComponentProp(editor: Editor, id: string, componentId: string
       const c = x.components.find((cc) => cc.id === componentId);
       if (c) c.props[key] = clone(value);
     },
-    'コンポーネントの設定を変更',
+    label,
     merge ? `comp:${componentId}:${key}` : undefined,
   );
 }

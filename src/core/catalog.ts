@@ -48,7 +48,15 @@ export type CreateKind =
   | 'game-npc'
   | 'game-spike'
   | 'game-savepoint'
-  | 'game-goal';
+  | 'game-goal'
+  | 'fx-fire'
+  | 'fx-smoke'
+  | 'fx-sparks'
+  | 'fx-explosion'
+  | 'fx-rain'
+  | 'fx-snow'
+  | 'fx-magic'
+  | 'fx-confetti';
 
 export interface CatalogItem {
   kind: CreateKind;
@@ -59,7 +67,7 @@ export interface CatalogItem {
   /** 生成時のエンティティ名 */
   defaultName: string;
   icon: string;
-  category: 'shape' | 'camera' | 'light' | 'other' | 'game' | 'ui';
+  category: 'shape' | 'camera' | 'light' | 'other' | 'game' | 'ui' | 'effect';
   description: string;
 }
 
@@ -87,6 +95,14 @@ export const CATALOG: CatalogItem[] = [
   { kind: 'game-spike', label: 'トゲ (ダメージ床)', english: 'Hazard', defaultName: 'トゲ', icon: 'cone', category: 'game', description: '触れるとダメージを受ける' },
   { kind: 'game-savepoint', label: 'セーブポイント', english: 'Save Point', defaultName: 'セーブポイント', icon: 'flag', category: 'game', description: '触れると復活地点を記録' },
   { kind: 'game-goal', label: 'ゴール', english: 'Goal', defaultName: 'ゴール', icon: 'trophy', category: 'game', description: '触れるとゲームクリア' },
+  { kind: 'fx-fire', label: '炎', english: 'Fire', defaultName: '炎', icon: 'zap', category: 'effect', description: 'ゆらめく炎 (たき火・たいまつ)' },
+  { kind: 'fx-smoke', label: '煙', english: 'Smoke', defaultName: '煙', icon: 'cloud', category: 'effect', description: 'もくもく上がる煙' },
+  { kind: 'fx-sparks', label: '火花', english: 'Sparks', defaultName: '火花', icon: 'sparkles', category: 'effect', description: '飛び散る火花' },
+  { kind: 'fx-explosion', label: '爆発', english: 'Explosion', defaultName: '爆発', icon: 'alert', category: 'effect', description: '一度だけ爆発する (イベントでも出せる)' },
+  { kind: 'fx-rain', label: '雨 (範囲)', english: 'Rain', defaultName: '雨', icon: 'cloud', category: 'effect', description: 'この場所の周りだけに降る雨' },
+  { kind: 'fx-snow', label: '雪 (範囲)', english: 'Snow', defaultName: '雪', icon: 'cloud', category: 'effect', description: 'この場所の周りだけに降る雪' },
+  { kind: 'fx-magic', label: 'キラキラ', english: 'Magic', defaultName: 'キラキラ', icon: 'sparkles', category: 'effect', description: '光る粒 (魔法・宝物)' },
+  { kind: 'fx-confetti', label: '紙吹雪', english: 'Confetti', defaultName: '紙吹雪', icon: 'sparkles', category: 'effect', description: 'お祝いの紙吹雪 (一度だけ)' },
   { kind: 'ui-text', label: '文字', english: 'Text', defaultName: '文字', icon: 'font', category: 'ui', description: '画面に文字を表示' },
   { kind: 'ui-score', label: 'スコア表示', english: 'Score', defaultName: 'スコア表示', icon: 'trophy', category: 'ui', description: '「スコア: 10」のように表示' },
   { kind: 'ui-button', label: 'ボタン', english: 'Button', defaultName: 'ボタン', icon: 'pointer', category: 'ui', description: '押すとイベントを実行' },
@@ -433,12 +449,26 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       }
       return base;
     }
+    case 'fx-fire':
+    case 'fx-smoke':
+    case 'fx-sparks':
+    case 'fx-explosion':
+    case 'fx-rain':
+    case 'fx-snow':
+    case 'fx-magic':
+    case 'fx-confetti': {
+      const preset = kind.slice(3);
+      base.kind = 'empty';
+      base.transform.position = preset === 'rain' || preset === 'snow' ? [0, 8, 0] : [0, 0.5, 0];
+      base.components.push(makeComponent('particles', { preset }));
+      return base;
+    }
     case 'game-player': {
       base.kind = 'mesh';
       base.mesh = defaultMesh('capsule', '#4c8dff');
       base.transform.position = [0, 1, 0];
       base.transform.scale = [0.8, 0.8, 0.8];
-      base.components.push(makeComponent('player'), makeComponent('health', { maxHp: 100 }));
+      base.components.push(makeComponent('player'), makeComponent('health', { maxHp: 100 }), makeComponent('charAnim'));
       base.tags.push('player');
       return base;
     }
@@ -476,7 +506,7 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       base.mesh = defaultMesh('cube', '#e5484d');
       base.transform.position = [0, 0.5, 0];
       base.transform.scale = [0.9, 0.9, 0.9];
-      base.components.push(makeComponent('enemy'), makeComponent('health', { maxHp: 30 }));
+      base.components.push(makeComponent('enemy'), makeComponent('health', { maxHp: 30 }), makeComponent('charAnim', { intensity: 0.8, lean: false }));
       base.tags.push('enemy');
       return base;
     }
@@ -485,7 +515,7 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       base.mesh = defaultMesh('capsule', '#3ecf8e');
       base.transform.position = [0, 1, 0];
       base.transform.scale = [0.8, 0.8, 0.8];
-      base.components.push(makeComponent('npc'));
+      base.components.push(makeComponent('npc'), makeComponent('charAnim'));
       return base;
     }
     case 'game-spike': {

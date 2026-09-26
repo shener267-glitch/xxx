@@ -392,6 +392,10 @@ export class EventsPanel {
           return e.kind === 'ui' && e.ui?.type === 'button';
         case 'any':
           return true;
+        case 'animation':
+          return e.components.some((c) => c.type === 'animation');
+        case 'particles':
+          return e.components.some((c) => c.type === 'particles');
         default:
           return e.kind !== 'ui';
       }
@@ -473,6 +477,22 @@ export class EventsPanel {
         }
         sel.el.value = value;
         return fieldRow(label, sel.el, { hint: p.hint });
+      }
+      case 'clip': {
+        // シーン内のアニメーションの名前から選ぶ
+        const names = new Set<string>();
+        for (const e of this.ctx.editor.scene.ordered()) {
+          for (const c of e.components) {
+            if (c.type !== 'animation' || !Array.isArray(c.props.clips)) continue;
+            for (const clip of c.props.clips as { name?: unknown }[]) if (typeof clip.name === 'string') names.add(clip.name);
+          }
+        }
+        const value = String(cur ?? '');
+        if (value) names.add(value);
+        const options = [{ value: '', label: names.size ? '(選んでください)' : '(アニメーションがありません)' }, ...[...names].map((n) => ({ value: n, label: n }))];
+        const sel = new Select({ options, title: p.label, testId, onChange: (v) => set(v) });
+        sel.el.value = value;
+        return fieldRow(label, sel.el, { hint: p.hint ?? 'オブジェクトの「アニメーション」で作った名前' });
       }
       case 'variable': {
         const sel = h('select', { class: 'select', attrs: { 'aria-label': p.label, 'data-testid': testId } });

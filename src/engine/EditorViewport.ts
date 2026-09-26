@@ -29,6 +29,7 @@ import type { EngineRenderer } from './EngineRenderer';
 import { GizmoController } from './GizmoController';
 import { Grid } from './Grid';
 import { SceneBridge } from './SceneBridge';
+import { EffectPreview } from './EffectPreview';
 import { findEntityObject, SceneBuilder } from './SceneBuilder';
 import type { EntityObject } from './SceneBuilder';
 import type { ViewportInputHandlers } from './ViewportInput';
@@ -50,6 +51,10 @@ export class EditorViewport {
   readonly input: ViewportInput;
   readonly grid = new Grid();
   readonly env: SceneEnvironment;
+  readonly effects: EffectPreview;
+  private lastFrame = 0;
+  /** アニメーション編集のプレビューで一時的に姿勢を変えているオブジェクト */
+  private posed = new Set<string>();
   private builder: SceneBuilder;
   private selectionBoxes: Box3Helper[] = [];
   /** 選択中オブジェクトの当たり判定 (緑の枠) */
@@ -84,6 +89,11 @@ export class EditorViewport {
       this.requestRender();
     };
     this.scene.add(this.bridge.root);
+    this.effects = new EffectPreview(editor, this.bridge, this.scene);
+    const syncEffects = debounce(() => {
+      this.effects.sync(editor.settings.quality, engine.height);
+      this.requestRender();
+    }, 60);
 
     this.gizmo = new GizmoController(editor, this.bridge, this.camera.camera, this.scene);
     this.gizmo.onChange = () => this.requestRender();
@@ -101,6 +111,7 @@ export class EditorViewport {
     this.unsubs.push(
       engine.onResize((w, h) => {
         this.camera.setAspect(w / h);
+        this.effects?.setViewportHeight(h);
         this.requestRender();
       }),
     );
@@ -118,8 +129,17 @@ export class EditorViewport {
       ev.on('entity-changed', (c) => {
         if (editor.scene.get(c.id)?.light?.type === 'directional') this.scheduleEnvironment();
       }),
-      ev.on('entity-added', () => this.scheduleEnvironment()),
-      ev.on('entity-removed', () => this.scheduleEnvironment()),
+      ev.on('entity-added', () => {
+        this.scheduleEnvironment();
+        syncEffects();
+      }),
+      ev.on('entity-removed', () => {
+        this.scheduleEnvironment();
+        syncEffects();
+      }),
+      ev.on('entity-changed', () => syncEffects()),
+      ev.on('scene-loaded', () => syncEffects()),
+      ev.on('selection-changed', () => this.clearPoses()),
       onTextureLoaded(() => this.requestRender()),
     );
     this.camera.setAspect(engine.width / engine.height);
@@ -146,6 +166,12 @@ export class EditorViewport {
     this.raf = requestAnimationFrame(this.loop);
     if (!this.running) return;
     if (this.camera.tick(now)) this.needsRender = true;
+    const dt = this.lastFrame ? Math.min(0.1, (now - this.lastFrame) / 1000) : 0;
+    this.lastFrame = now;
+    // パーティクル: 選択中のもの (プレビュー ON ならすべて) を動かす
+    const sel = this.editor.selection.ids;
+    const all = this.editor.settings.previewEffects;
+    if (this.effects.update(dt, (id) => all || sel.includes(id))) this.needsRender = true;
     // エフェクトのプレビューが有効なときだけ毎フレーム描画する (水の波・天候)
     if (this.editor.settings.previewEffects) {
       sharedUniforms.uTime.value = now / 1000;
@@ -165,8 +191,44 @@ export class EditorViewport {
     for (const fn of this.listeners) fn();
   }
 
+  /** アニメーション編集のプレビュー: データを変えずに見た目の姿勢だけ変える (null で元に戻す) */
+  previewPose(id: string, pose: { p: Vec3; r: Vec3; s: Vec3 } | null): void {
+    const obj = this.bridge.get(id);
+    const e = this.editor.scene.get(id);
+    if (!obj || !e) return;
+    if (pose) {
+      obj.position.set(pose.p[0], pose.p[1], pose.p[2]);
+      obj.rotation.set((pose.r[0] * Math.PI) / 180, (pose.r[1] * Math.PI) / 180, (pose.r[2] * Math.PI) / 180, 'XYZ');
+      obj.scale.set(pose.s[0] || 1e-4, pose.s[1] || 1e-4, pose.s[2] || 1e-4);
+      this.posed.add(id);
+    } else {
+      this.builder.applyTransform(obj, e);
+      this.posed.delete(id);
+    }
+    obj.updateMatrixWorld(true);
+    this.selectionDirty = true;
+    this.requestRender();
+  }
+
+  /** 見た目の姿勢 (プレビュー中ならその姿勢) */
+  displayedTransform(id: string): { p: Vec3; r: Vec3; s: Vec3 } | null {
+    const obj = this.bridge.get(id);
+    if (!obj) return null;
+    const r = (v: number) => Math.round(v * 1000) / 1000;
+    return {
+      p: [r(obj.position.x), r(obj.position.y), r(obj.position.z)],
+      r: [r((obj.rotation.x * 180) / Math.PI), r((obj.rotation.y * 180) / Math.PI), r((obj.rotation.z * 180) / Math.PI)],
+      s: [r(obj.scale.x), r(obj.scale.y), r(obj.scale.z)],
+    };
+  }
+
+  clearPoses(): void {
+    for (const id of [...this.posed]) this.previewPose(id, null);
+  }
+
   /** Play Mode 中は描画と入力を止める */
   suspend(): void {
+    this.clearPoses();
     this.running = false;
     this.input.reset();
     this.input.enabled = false;
@@ -211,6 +273,7 @@ export class EditorViewport {
     }
     this.env.setQuality(s.quality);
     this.env.setWeatherVisible(s.previewEffects);
+    this.effects.sync(s.quality, this.engine.height);
     this.gizmo.refresh();
     this.requestRender();
   }

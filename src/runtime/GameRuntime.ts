@@ -1,4 +1,4 @@
-import { Box3, MathUtils, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
+import { Box3, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type { ComponentInstance, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
 import { getComponentDef } from '../components/registry';
@@ -12,7 +12,10 @@ import { SceneBuilder } from '../engine/SceneBuilder';
 import { findSunDirection, SceneEnvironment } from '../engine/SceneEnvironment';
 import type { EntityObject } from '../engine/SceneBuilder';
 import { resolveBodySpec } from '../engine/colliderShapes';
+import type { ParticlePreset } from '../engine/particles';
+import { MAX_PARTICLES, PARTICLE_PRESETS, ParticleEmitter, particleSettings } from '../engine/particles';
 import { splitPages } from '../components/gameplay';
+import type { AnimationHandle, ParticleHandle } from '../components/effects';
 import { clone, createId } from '../core/util';
 import type { EventHost } from './EventSystem';
 import { EventSystem } from './EventSystem';
@@ -205,6 +208,9 @@ export class GameRuntime implements RuntimeAPI {
   private canAttack = false;
   private startPositions = new Map<string, Vec3>();
   private tweens: Tween[] = [];
+  private controllers = new Map<string, unknown>();
+  private effects: { emitter: ParticleEmitter; origin: Matrix4 }[] = [];
+  private readonly qualityLevel: QualityLevel;
   /** ノーコードのイベント */
   readonly events: EventSystem;
 
@@ -213,6 +219,7 @@ export class GameRuntime implements RuntimeAPI {
     this.sceneData = scene;
     this.cameraMode = opts.cameraMode;
     const quality = opts.quality ?? 'medium';
+    this.qualityLevel = quality;
     this.builder = new SceneBuilder({ editor: false, quality });
     this.env = new SceneEnvironment(this.scene, opts.engine.renderer, quality);
     this.inputImpl = new RuntimeInput(opts.overlay);
@@ -642,6 +649,7 @@ export class GameRuntime implements RuntimeAPI {
       this.inputImpl.clearQueued();
     }
     this.updateAnims(dt);
+    this.updateEffects(dt);
     this.rig.update(dt, this.inputImpl);
     sharedUniforms.uTime.value += dt;
     this.env.update(sharedUniforms.uTime.value, this.rig.camera);
@@ -757,6 +765,22 @@ export class GameRuntime implements RuntimeAPI {
           return;
         }
         rt.request('scene', sceneId);
+      },
+      playAnimation: (id, clip) => {
+        const a = rt.getController<AnimationHandle>(id, 'animation');
+        if (!a) rt.report('アニメーションが付いていないオブジェクトです', 'warn', rt.sceneData.entities[id]);
+        else if (!a.play(clip)) rt.report(`アニメーション「${clip}」が見つかりません`, 'warn', rt.sceneData.entities[id]);
+      },
+      stopAnimation: (id) => rt.getController<AnimationHandle>(id, 'animation')?.stop(),
+      spawnEffect: (preset, atId, scale) => {
+        if (!rt.objects.has(atId)) return;
+        const p = rt.worldPosition(atId, new Vector3());
+        rt.spawnEffect(preset, [p.x, p.y, p.z], scale);
+      },
+      setParticles: (id, on) => {
+        const h = rt.getController<ParticleHandle>(id, 'particles');
+        if (on) h?.play();
+        else h?.stop();
       },
       gameClear: (msg) => rt.gameClear(msg || undefined),
       gameOver: (msg) => rt.gameOver(msg || undefined),
@@ -1096,6 +1120,8 @@ export class GameRuntime implements RuntimeAPI {
     if (target !== this.playerId) {
       this.state.addScore(h.score);
       this.audio.play('builtin:explosion', 0.6);
+      const p = this.worldPosition(target, new Vector3());
+      this.spawnEffect('explosion', [p.x, p.y, p.z], 0.6);
       this.destroyEntity(target, 'pop');
       this.emit('defeated', target);
       return;
@@ -1206,6 +1232,45 @@ export class GameRuntime implements RuntimeAPI {
     }
   }
 
+  get quality(): QualityLevel {
+    return this.qualityLevel;
+  }
+
+  get viewportHeight(): number {
+    return this.opts.engine.height;
+  }
+
+  registerController(entityId: string, kind: string, handle: unknown): void {
+    this.controllers.set(`${kind}:${entityId}`, handle);
+  }
+
+  getController<T>(entityId: string, kind: string): T | undefined {
+    return this.controllers.get(`${kind}:${entityId}`) as T | undefined;
+  }
+
+  spawnEffect(preset: string, at: Vec3, scale = 1): void {
+    if (!(preset in PARTICLE_PRESETS)) return;
+    // 同時に出す使い捨てエフェクトの数を抑える
+    if (this.effects.length >= 12) this.effects.shift()?.emitter.dispose();
+    const base = particleSettings(preset as ParticlePreset);
+    const s = { ...base, size: base.size * scale, sizeEnd: base.sizeEnd * scale, speed: base.speed * scale, loop: false, rate: base.burst > 0 ? 0 : base.rate };
+    if (s.burst === 0) s.burst = Math.round(40 * scale);
+    const emitter = new ParticleEmitter(s, MAX_PARTICLES[this.qualityLevel]);
+    emitter.setViewportHeight(this.opts.engine.height);
+    this.scene.add(emitter.points);
+    this.effects.push({ emitter, origin: new Matrix4().makeTranslation(at[0], at[1], at[2]) });
+  }
+
+  private updateEffects(dt: number): void {
+    if (this.effects.length === 0) return;
+    this.effects = this.effects.filter((e) => {
+      e.emitter.update(dt, e.origin);
+      if (!e.emitter.finished) return true;
+      e.emitter.dispose();
+      return false;
+    });
+  }
+
   /** Play 中に変化した位置・回転・拡大 (「変更を保持」用) */
   exportTransforms(): Map<string, TransformData> {
     const out = new Map<string, TransformData>();
@@ -1244,6 +1309,9 @@ export class GameRuntime implements RuntimeAPI {
     this.inputImpl.dispose();
     this.ui.dispose();
     this.audio.dispose();
+    for (const e of this.effects) e.emitter.dispose();
+    this.effects = [];
+    this.controllers.clear();
     this.eventListeners.clear();
     for (const obj of this.objects.values()) this.builder.dispose(obj);
     this.objects.clear();

@@ -31,6 +31,10 @@ export interface EventHost {
   spawn(entityId: string, atId: string | null): string | null;
   launch(entityId: string, velocity: Vec3): void;
   changeScene(sceneId: string): void;
+  playAnimation(entityId: string, clip: string): void;
+  stopAnimation(entityId: string): void;
+  spawnEffect(preset: string, atId: string, scale: number): void;
+  setParticles(entityId: string, on: boolean): void;
   gameClear(message: string): void;
   gameOver(message: string): void;
   log(message: string, level: 'info' | 'warn' | 'error'): void;
@@ -402,6 +406,23 @@ export class EventSystem {
       case 'launch': {
         const id = this.resolve(p.target);
         if (id) h.launch(id, vec(p.velocity));
+        break;
+      }
+      case 'anim': {
+        const id = this.resolve(p.target);
+        if (!id) break;
+        if (p.mode === 'stop') h.stopAnimation(id);
+        else h.playAnimation(id, str(p.clip));
+        break;
+      }
+      case 'effect': {
+        const id = this.resolve(p.target);
+        if (id) h.spawnEffect(str(p.preset) || 'explosion', id, num(p.scale, 1));
+        break;
+      }
+      case 'particles': {
+        const id = this.resolve(p.target);
+        if (id) h.setParticles(id, p.mode !== 'stop');
         break;
       }
       case 'wait':

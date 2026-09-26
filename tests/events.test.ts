@@ -73,6 +73,18 @@ class FakeHost implements EventHost {
   changeScene(id: string) {
     this.calls.push(`scene:${id}`);
   }
+  playAnimation(id: string, clip: string) {
+    this.calls.push(`anim:${id}:${clip}`);
+  }
+  stopAnimation(id: string) {
+    this.calls.push(`animstop:${id}`);
+  }
+  spawnEffect(preset: string, at: string, scale: number) {
+    this.calls.push(`effect:${preset}:${at}:${scale}`);
+  }
+  setParticles(id: string, on: boolean) {
+    this.calls.push(`particles:${id}:${on}`);
+  }
   gameClear(m: string) {
     this.calls.push(`clear:${m}`);
   }
@@ -270,13 +282,29 @@ describe('EventSystem', () => {
           createBlock('action', 'hp', { target: 'player', value: -15 }),
           createBlock('action', 'item', { item: '鍵', count: 2 }),
           createBlock('action', 'item', { item: '鍵', count: -1 }),
+          createBlock('action', 'anim', { target: 'coin', clip: '回転' }),
+          createBlock('action', 'anim', { target: 'coin', mode: 'stop' }),
+          createBlock('action', 'effect', { preset: 'confetti', target: 'player', scale: 2 }),
+          createBlock('action', 'particles', { target: 'enemy', mode: 'stop' }),
           createBlock('action', 'scene', { scene: 's2' }),
           createBlock('action', 'clear', { message: 'やった' }),
         ]),
       ],
       host,
     ).start();
-    expect(host.calls).toEqual(['destroy:enemy', 'move:coin:0,1,0:2', 'teleport:p:coin', 'spawn:enemy:p', 'damage:p:15', 'scene:s2', 'clear:やった']);
+    expect(host.calls).toEqual([
+      'destroy:enemy',
+      'move:coin:0,1,0:2',
+      'teleport:p:coin',
+      'spawn:enemy:p',
+      'damage:p:15',
+      'anim:coin:回転',
+      'animstop:coin',
+      'effect:confetti:p:2',
+      'particles:enemy:false',
+      'scene:s2',
+      'clear:やった',
+    ]);
     expect(host.state.inventory.get('鍵')).toBe(1);
   });
 });

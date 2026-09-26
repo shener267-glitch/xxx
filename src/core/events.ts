@@ -24,9 +24,11 @@ export type ParamType =
   | 'scene'
   /** 変数名 */
   | 'variable'
+  /** アニメーションの名前 (シーン内のアニメーションから選ぶ) */
+  | 'clip'
   | 'vec3';
 
-export type EntityFilter = 'any' | 'ui' | 'button' | 'object';
+export type EntityFilter = 'any' | 'ui' | 'button' | 'object' | 'animation' | 'particles';
 
 export interface ParamDef {
   key: string;
@@ -104,6 +106,8 @@ export const COMPARE_OPS = [
   { value: '<=', label: '以下' },
   { value: '<', label: 'より小さい' },
 ];
+
+const EFFECT_LABELS: Record<string, string> = { explosion: '爆発', sparks: '火花', smoke: '煙', magic: 'キラキラ', confetti: '紙吹雪', fire: '炎' };
 
 const opLabel = (op: unknown) => COMPARE_OPS.find((o) => o.value === op)?.label ?? String(op);
 const n = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -523,6 +527,75 @@ const ACTIONS: BlockDef[] = [
     summary: (p, c) => `${who(c, p.target)}を飛ばす`,
   },
   {
+    type: 'anim',
+    kind: 'action',
+    label: 'アニメーションを再生 / 止める',
+    icon: 'film',
+    group: 'アニメーション・エフェクト',
+    params: [
+      ent('target', 'オブジェクト', { filter: 'animation', allowPlayer: true }),
+      { key: 'clip', label: 'アニメーション', type: 'clip', default: '' },
+      {
+        key: 'mode',
+        label: 'どうする',
+        type: 'select',
+        default: 'play',
+        options: [
+          { value: 'play', label: '再生する' },
+          { value: 'stop', label: '止める' },
+        ],
+      },
+    ],
+    summary: (p, c) => (p.mode === 'stop' ? `${who(c, p.target, '?')}のアニメーションを止める` : `${who(c, p.target, '?')}のアニメーション「${s(p.clip) || '?'}」を再生`),
+  },
+  {
+    type: 'effect',
+    kind: 'action',
+    label: 'エフェクトを出す (爆発など)',
+    icon: 'sparkles',
+    group: 'アニメーション・エフェクト',
+    params: [
+      {
+        key: 'preset',
+        label: '種類',
+        type: 'select',
+        default: 'explosion',
+        options: [
+          { value: 'explosion', label: '爆発' },
+          { value: 'sparks', label: '火花' },
+          { value: 'smoke', label: '煙' },
+          { value: 'magic', label: 'キラキラ' },
+          { value: 'confetti', label: '紙吹雪' },
+          { value: 'fire', label: '炎' },
+        ],
+      },
+      ent('target', 'どこに', { default: 'player', allowPlayer: true, filter: 'any' }),
+      num('scale', '大きさ', 1, { min: 0.1, max: 10, step: 0.1 }),
+    ],
+    summary: (p, c) => `${who(c, p.target, '?')}の場所に${EFFECT_LABELS[s(p.preset)] ?? 'エフェクト'}を出す`,
+  },
+  {
+    type: 'particles',
+    kind: 'action',
+    label: 'パーティクルを出す / 止める',
+    icon: 'sparkles',
+    group: 'アニメーション・エフェクト',
+    params: [
+      ent('target', 'パーティクル', { filter: 'particles' }),
+      {
+        key: 'mode',
+        label: 'どうする',
+        type: 'select',
+        default: 'play',
+        options: [
+          { value: 'play', label: '出す' },
+          { value: 'stop', label: '止める' },
+        ],
+      },
+    ],
+    summary: (p, c) => `${who(c, p.target, '?')}の粒を${p.mode === 'stop' ? '止める' : '出す'}`,
+  },
+  {
     type: 'wait',
     kind: 'action',
     label: '待つ',
@@ -571,6 +644,7 @@ export function missingParam(kind: BlockKind, block: EventBlock): string | null 
     const empty = v === '' || v === null || v === undefined;
     if (!empty) continue;
     if ((p.type === 'entity' && !p.allowAny) || p.type === 'scene' || p.type === 'variable') return p.label;
+    if (p.type === 'clip' && block.params.mode !== 'stop') return p.label;
   }
   return null;
 }
