@@ -117,6 +117,21 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
   ワールド座標で動かすのでシーンの直下に置く。エディタでは `EffectPreview` が選択中の発生源を動かす
 - コンポーネント同士・イベントからの操作は `runtime.registerController / getController` (アニメーション・パーティクル)
 
+### アセット・部品 (Phase 6)
+
+- アセットの本体 (Blob) は IndexedDB の `assets` ストア、一覧用の情報 (`AssetEntry`: 種類・フォルダ・小さな画像・
+  モデルの大きさ / アニメーション名 / 画像の大きさ / 音声の長さ) はプロジェクトの JSON に保存。取り込みと削除は `app/AssetService.ts`
+  (削除時はプロジェクト内の参照を外す)。フォルダはアセットの `folder` と空のフォルダ用の `ProjectData.assetFolders`
+- 3D モデル: `engine/models.ts`。GLTFLoader / SkeletonUtils は動的 import (別チャンク)。同じアセットは 1 回だけ読み込んで
+  複製し (ジオメトリ・マテリアルは共有、`userData.sharedModel` で破棄対象から除外)、スキンメッシュは骨ごと複製。
+  エンティティは `kind: 'model'` + `EntityData.model` (アセット ID・大きさ・中心・再生するアニメーション)。
+  `SceneBuilder` は入れ物 (Group) を先に置いて非同期に中身を入れ、読み込むまではワイヤーフレームの箱を表示。
+  ランタイムは `SceneBuilder.whenLoaded()` を待ってから開始し、`AnimationMixer` を `'modelAnim'` コントローラとして登録
+- 小さな画像: `engine/thumbnail.ts` (画面用のレンダラーで別の描画先に描く。WebGL を増やさない)
+- 置く: `core/assetPlacement.ts` (アセット → エンティティ。DOM 非依存)。ドラッグ配置は画面座標 → 地面の点
+- 部品 (Prefab): `core/prefabs.ts`。`PrefabEntry` はサブツリーのエンティティをそのまま保存し、置くときに ID を振り直す。
+  置いた物は `EntityData.prefab` で部品とつながる。大量配置の位置は決まった乱数 (seed) で計算するので同じ設定なら同じ配置
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -137,7 +152,7 @@ registerComponent({
 
 ## 保存 (storage/, app/ProjectService.ts)
 
-- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (Phase 5 用に予約)
+- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (読み込んだファイルの本体)
 - IndexedDB が使えなければ localStorage、それも無理ならメモリ (警告を表示)
 - 変更の 2.5 秒後に自動保存。タブが裏に回ったとき (`visibilitychange` / `pagehide`) にも保存
 - エディタ設定 (グリッド・スナップなど) はプロジェクトとは別に localStorage に保存
@@ -153,5 +168,4 @@ registerComponent({
 
 | フェーズ | 追加場所 |
 | --- | --- |
-| アセット・Prefab | `ProjectData.assets / prefabs` と IndexedDB の `assets` ストア |
 | 書き出し | `runtime/` のみを含むプレイヤー用エントリーポイント + ZIP 生成 |
