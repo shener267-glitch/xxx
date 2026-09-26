@@ -81,10 +81,15 @@ export class PhysicsWorld {
     else this.onContactEnd(ev);
   }
 
-  private createShape(shape: ColliderShape): { shapes: CANNON.Shape[]; offsets: CANNON.Vec3[] } {
+  private createShape(shape: ColliderShape): { shapes: CANNON.Shape[]; offsets: CANNON.Vec3[]; orientations?: CANNON.Quaternion[] } {
     const C = this.C;
     const o = new C.Vec3(...shape.offset);
     switch (shape.kind) {
+      case 'heightfield': {
+        const q = new C.Quaternion();
+        q.setFromEuler(-Math.PI / 2, 0, 0);
+        return { shapes: [new C.Heightfield(shape.data, { elementSize: Math.max(0.01, shape.elementSize) })], offsets: [o], orientations: [q] };
+      }
       case 'sphere':
         return { shapes: [new C.Sphere(Math.max(0.01, shape.radius))], offsets: [o] };
       case 'cylinder':
@@ -137,8 +142,8 @@ export class PhysicsWorld {
       isTrigger: trigger,
       material: new C.Material({ friction: rb?.friction ?? 0.4, restitution: rb?.bounciness ?? 0.1 }),
     });
-    const { shapes, offsets } = this.createShape(shape);
-    shapes.forEach((s, i) => body.addShape(s, offsets[i]));
+    const { shapes, offsets, orientations } = this.createShape(shape);
+    shapes.forEach((s, i) => body.addShape(s, offsets[i], orientations?.[i]));
     body.updateMassProperties();
     this.world.addBody(body);
     const info: PhysicsBody = {

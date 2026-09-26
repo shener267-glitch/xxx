@@ -14,6 +14,7 @@ import { ColorField, fieldRow, NumberField, section as sectionWidget, Select, Sl
 import type { InspectorKit } from './gameInspector';
 import { gameSettingsSection, modelSection, musicSection, soundField, uiElementSection } from './gameInspector';
 import { clipsEditor } from './animEditor';
+import { terrainSection } from './terrainInspector';
 
 type Refresher = () => void;
 
@@ -103,7 +104,7 @@ export class InspectorPanel {
     }
     return list
       .map((e) =>
-        [e.id, e.kind, e.mesh?.shape, e.mesh?.material.preset, e.light?.type, e.ui?.type, e.model?.asset, e.components.map((c) => `${c.id}:${c.type}`).join(',')].join('|'),
+        [e.id, e.kind, e.mesh?.shape, e.mesh?.material.preset, e.light?.type, e.ui?.type, e.model?.asset, e.terrain?.resolution, e.components.map((c) => `${c.id}:${c.type}`).join(',')].join('|'),
       )
       .join('/');
   }
@@ -326,6 +327,8 @@ export class InspectorPanel {
       this.body.appendChild(uiElementSection(this.kit, single));
     } else if (kind === 'model' && single) {
       this.body.appendChild(modelSection(this.kit, single));
+    } else if (kind === 'terrain' && single) {
+      for (const sec of terrainSection(this.kit, single)) this.body.appendChild(sec);
     } else if (kind === 'mesh') {
       this.body.appendChild(this.meshSection());
       this.body.appendChild(this.materialSection(list));

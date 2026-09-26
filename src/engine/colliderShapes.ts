@@ -1,4 +1,4 @@
-import type { ComponentData, EntityData, Vec3 } from '../core/types';
+import type { ComponentData, EntityData, TerrainData, Vec3 } from '../core/types';
 
 /**
  * 当たり判定 (コライダー) の形状を決める。
@@ -11,7 +11,9 @@ export type ColliderShape =
   | { kind: 'box'; half: Vec3; offset: Vec3 }
   | { kind: 'sphere'; radius: number; offset: Vec3 }
   | { kind: 'cylinder'; radiusTop: number; radiusBottom: number; height: number; offset: Vec3 }
-  | { kind: 'capsule'; radius: number; height: number; offset: Vec3 };
+  | { kind: 'capsule'; radius: number; height: number; offset: Vec3 }
+  /** 地形: data[列][行] の高さ。ローカルの (offset) の角から +X / -Z 方向に並ぶ */
+  | { kind: 'heightfield'; data: number[][]; elementSize: number; offset: Vec3 };
 
 export type BodyType = 'dynamic' | 'kinematic' | 'static';
 
@@ -81,7 +83,27 @@ const PASS_THROUGH = ['item', 'savepoint', 'goal'];
  * 2. プレイヤー・敵は自動で「動く」ボディ (回転固定・摩擦なし)、NPC は固定
  * 3. autoColliders (プレイヤーがいるシーン) では、その他のメッシュも固定の当たり判定にする
  */
+/**
+ * 地形の高さの格子を物理エンジンの Heightfield の形にする。
+ * Heightfield はローカルの XY 平面に並び Z が高さなので、X 軸で -90° 回して使う
+ * (格子の (列 i, 行 j) → (i, 高さ, -j))。そのため行の順番を逆にする
+ */
+export function terrainHeightfield(t: TerrainData, sx = 1, sy = 1): ColliderShape {
+  const n = t.resolution;
+  const w = n + 1;
+  const data: number[][] = [];
+  for (let c = 0; c < w; c++) {
+    const col = new Array<number>(w);
+    for (let j = 0; j < w; j++) col[j] = t.heights[(n - j) * w + c] * sy;
+    data.push(col);
+  }
+  const half = (t.size / 2) * sx;
+  return { kind: 'heightfield', data, elementSize: (t.size / n) * sx, offset: [-half, 0, half] };
+}
+
 export function resolveBodySpec(e: EntityData, opts: { autoColliders: boolean }): BodySpec | null {
+  // 地形はいつも動かない地面
+  if (e.kind === 'terrain' && e.terrain) return { rb: null, collider: null };
   if (hasPhysics(e)) {
     return {
       rb: readRigidbody(e.components.find((c) => c.type === 'rigidbody')),
@@ -121,6 +143,8 @@ export function computeColliderShape(e: EntityData, worldScale: Vec3, collider: 
   const offset: Vec3 = collider ? [collider.offset[0] * sx, collider.offset[1] * sy, collider.offset[2] * sz] : [0, 0, 0];
   let kind = collider?.shape ?? 'auto';
   const meshShape = e.kind === 'mesh' ? e.mesh?.shape : undefined;
+  // 地形: 高さの格子 (横・奥行きの拡大は X の値を使う)
+  if (e.kind === 'terrain' && e.terrain) return terrainHeightfield(e.terrain, sx, sy);
   // 3D モデル: 読み込み時に調べた大きさの箱 (中心のずれも反映)
   if (e.kind === 'model' && e.model && kind === 'auto') {
     const m = e.model;

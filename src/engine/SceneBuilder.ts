@@ -28,6 +28,7 @@ import { safeScale } from '../core/transformMath';
 import type { EntityData, PrimitiveShape } from '../core/types';
 import { createMaterial, disposeMaterial, materialSignature, updateMaterial } from './materials';
 import { instantiateModel } from './models';
+import { createTerrainMesh, refreshTerrainMesh, terrainKey } from './terrainMesh';
 
 /**
  * EntityData から Three.js のオブジェクトを生成・更新する。
@@ -365,6 +366,8 @@ export class SceneBuilder {
         return 'camera';
       case 'model':
         return `model:${e.model?.asset ?? ''}`;
+      case 'terrain':
+        return `terrain:${e.terrain?.resolution ?? 0}`;
       default:
         return 'empty';
     }
@@ -425,6 +428,12 @@ export class SceneBuilder {
           o.receiveShadow = m.receiveShadow;
         }
       });
+    } else if (e.kind === 'terrain' && e.terrain && content instanceof Mesh) {
+      const key = terrainKey(e.terrain);
+      if (content.userData.terrainKey !== key) {
+        refreshTerrainMesh(content, e.terrain);
+        content.userData.terrainKey = key;
+      }
     } else if (e.kind === 'camera' && e.camera && content instanceof PerspectiveCamera) {
       content.fov = e.camera.fov;
       content.near = Math.max(0.01, e.camera.near);
@@ -448,6 +457,10 @@ export class SceneBuilder {
       ud.content = mesh;
     } else if (e.kind === 'light' && e.light) {
       ud.content = createLight(e, this.shadowMapSize);
+    } else if (e.kind === 'terrain' && e.terrain) {
+      const mesh = createTerrainMesh(e.terrain);
+      mesh.userData.terrainKey = terrainKey(e.terrain);
+      ud.content = mesh;
     } else if (e.kind === 'camera' && e.camera) {
       ud.content = new PerspectiveCamera(e.camera.fov, 16 / 9, e.camera.near, e.camera.far);
     } else if (e.kind === 'model' && e.model?.asset) {

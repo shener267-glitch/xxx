@@ -18,12 +18,15 @@ export function collectSubtree(entities: Record<string, EntityData>, rootId: str
   return out;
 }
 
-/** 選択したオブジェクト (と子) から Prefab を作る。位置は原点に戻して保存する */
-export function createPrefab(subtree: EntityData[], name: string, folder = ''): PrefabEntry {
+/**
+ * 選択したオブジェクト (と子) から Prefab を作る。
+ * 横の位置は原点に戻し、高さは地面 (groundY) からの高さとして保存する (置いたときに地面に埋まらないように)
+ */
+export function createPrefab(subtree: EntityData[], name: string, folder = '', groundY = 0): PrefabEntry {
   const list = clone(subtree);
   const root = list[0];
   root.parent = null;
-  root.transform.position = [0, 0, 0];
+  root.transform.position = [0, Math.round((root.transform.position[1] - groundY) * 1000) / 1000, 0];
   delete root.prefab;
   const entities: Record<string, EntityData> = {};
   for (const e of list) {

@@ -8,7 +8,8 @@ import type { AppContext } from './context';
 import { h } from './dom';
 import { icon } from './icons';
 import type { ActionItem } from './overlays';
-import { makePrefab, openMassPlace } from './assetDialogs';
+import { groundUnder, makePrefab, openMassPlace } from './assetDialogs';
+import { clone } from '../core/util';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
 /**
@@ -21,6 +22,7 @@ import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './ov
 
 const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
   shape: '3D オブジェクト',
+  world: '地形・水',
   camera: 'カメラ',
   light: 'ライト',
   other: 'その他',
@@ -32,7 +34,7 @@ const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
 /** カタログのカード一覧 (追加シートと Assets 画面で共用) */
 export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'add'): HTMLElement {
   const root = h('div', { class: 'catalog' });
-  for (const cat of ['shape', 'game', 'ui', 'effect', 'light', 'camera', 'other'] as const) {
+  for (const cat of ['shape', 'world', 'game', 'ui', 'effect', 'light', 'camera', 'other'] as const) {
     const items = CATALOG.filter((c) => c.category === cat);
     root.appendChild(h('div', { class: 'catalog-title', text: CATEGORY_LABELS[cat] }));
     root.appendChild(
@@ -65,9 +67,9 @@ export function addFromCatalog(ctx: AppContext, kind: CreateKind, at?: { x: numb
   let position: Vec3 | undefined;
   if (['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'].includes(probe)) {
     const y = probe === 'plane' ? 0 : probe === 'capsule' ? 1 : 0.5;
-    position = [ground[0], y, ground[2]];
+    position = [ground[0], ground[1] + y, ground[2]];
   } else if (kind === 'empty') {
-    position = [ground[0], 0, ground[2]];
+    position = [ground[0], ground[1], ground[2]];
   }
   const id = A.addEntity(ctx.editor, kind, { position });
   if (id) {
@@ -192,7 +194,11 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
         label: '並べて置く (大量配置)…',
         icon: 'grid',
         testId: 'menu-scatter',
-        onSelect: () => openMassPlace(ctx, { name: e.name, template: ed.scene.subtree(id), prefabId: e.prefab }),
+        onSelect: () => {
+          const template = clone(ed.scene.subtree(id));
+          template[0].transform.position[1] -= groundUnder(ctx, id);
+          openMassPlace(ctx, { name: e.name, template, prefabId: e.prefab });
+        },
       },
     );
     const linked = e.prefab ? ed.project.prefabs.find((p) => p.id === e.prefab) : undefined;
@@ -202,7 +208,7 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
         icon: 'upload',
         testId: 'menu-prefab-update',
         onSelect: () => {
-          if (A.updatePrefabFromEntity(ed, id)) toast(`部品「${linked.name}」を更新しました`, 'success', 1500);
+          if (A.updatePrefabFromEntity(ed, id, groundUnder(ctx, id))) toast(`部品「${linked.name}」を更新しました`, 'success', 1500);
         },
       });
     }

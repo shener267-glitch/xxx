@@ -40,6 +40,7 @@ import type {
 } from './types';
 import { PROJECT_FORMAT, PROJECT_VERSION, SCENE_FORMAT } from './types';
 import { sanitizeRules, sanitizeVariables } from './events';
+import { sanitizeTerrain } from './terrain';
 import { clone, createId, normalizeHex } from './util';
 
 /**
@@ -76,7 +77,7 @@ const SKIES: SkyType[] = ['color', 'gradient', 'physical'];
 const WEATHERS: WeatherType[] = ['none', 'rain', 'snow'];
 const ASSET_TYPES: AssetType[] = ['image', 'audio', 'model', 'font'];
 const LIGHTS: LightType[] = ['directional', 'point', 'spot', 'hemisphere', 'ambient'];
-const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light', 'ui', 'model'];
+const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light', 'ui', 'model', 'terrain'];
 const UI_TYPES: UIType[] = ['text', 'button', 'image', 'bar'];
 const UI_ACTIONS: UIButtonAction[] = ['none', 'jump', 'action', 'pause', 'restart', 'title'];
 const UI_ANCHORS: UIAnchor[] = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'];
@@ -205,6 +206,8 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
       receiveShadow: bool(m.receiveShadow, d.receiveShadow),
       animation: str(m.animation, '').slice(0, 100),
     };
+  } else if (kind === 'terrain') {
+    e.terrain = sanitizeTerrain(raw.terrain);
   } else if (kind === 'camera') {
     const c = isObj(raw.camera) ? raw.camera : {};
     const d = defaultCamera();

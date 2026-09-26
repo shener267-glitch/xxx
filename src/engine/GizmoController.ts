@@ -86,11 +86,19 @@ export class GizmoController {
     });
   }
 
+  /** 地形ブラシなどの間はギズモを隠す */
+  private suspended = false;
+
+  setEnabled(on: boolean): void {
+    this.suspended = !on;
+    this.refresh();
+  }
+
   refresh(): void {
     if (this.drag) return;
     const s = this.editor.settings;
     const tool = this.editor.tool;
-    const ids = this.editor.mode === 'edit' && tool !== 'select' ? this.editableSelection() : [];
+    const ids = this.editor.mode === 'edit' && tool !== 'select' && !this.suspended ? this.editableSelection() : [];
     this.attachedIds = ids;
     const c = this.controls;
     c.size = s.gizmoSize;

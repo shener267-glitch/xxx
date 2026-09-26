@@ -21,6 +21,8 @@ import type {
   TransformData,
 } from './types';
 import { createId } from './util';
+import type { TerrainGenerator } from './terrain';
+import { DEFAULT_GENERATE, defaultTerrain, generateHeights } from './terrain';
 
 /**
  * 「追加」メニューに並ぶオブジェクトの種類カタログ。
@@ -35,6 +37,10 @@ export type CreateKind =
   | 'light-hemisphere'
   | 'light-ambient'
   | 'water'
+  | 'terrain-flat'
+  | 'terrain-hills'
+  | 'terrain-mountains'
+  | 'terrain-island'
   | 'empty'
   | 'ui-text'
   | 'ui-score'
@@ -68,7 +74,7 @@ export interface CatalogItem {
   /** 生成時のエンティティ名 */
   defaultName: string;
   icon: string;
-  category: 'shape' | 'camera' | 'light' | 'other' | 'game' | 'ui' | 'effect';
+  category: 'shape' | 'world' | 'camera' | 'light' | 'other' | 'game' | 'ui' | 'effect';
   description: string;
 }
 
@@ -79,7 +85,11 @@ export const CATALOG: CatalogItem[] = [
   { kind: 'cylinder', label: '円柱', english: 'Cylinder', defaultName: '円柱', icon: 'cylinder', category: 'shape', description: '柱・缶など' },
   { kind: 'cone', label: '円錐', english: 'Cone', defaultName: '円錐', icon: 'cone', category: 'shape', description: 'コーン・屋根など' },
   { kind: 'capsule', label: 'カプセル', english: 'Capsule', defaultName: 'カプセル', icon: 'capsule', category: 'shape', description: 'キャラクターの仮モデルに' },
-  { kind: 'water', label: '水面', english: 'Water', defaultName: '水面', icon: 'wave', category: 'shape', description: '波打つ水。池や海に' },
+  { kind: 'terrain-flat', label: '地形 (平ら)', english: 'Terrain', defaultName: '地形', icon: 'mountain', category: 'world', description: 'ブラシで山や谷を作れる地面' },
+  { kind: 'terrain-hills', label: '地形 (丘)', english: 'Hills', defaultName: '丘', icon: 'mountain', category: 'world', description: 'なだらかな丘の地形' },
+  { kind: 'terrain-mountains', label: '山', english: 'Mountains', defaultName: '山', icon: 'mountain', category: 'world', description: '高い山と尾根の地形 (雪をかぶる)' },
+  { kind: 'terrain-island', label: '島', english: 'Island', defaultName: '島', icon: 'mountain', category: 'world', description: 'まわりが水の下になる島。水面と組み合わせて' },
+  { kind: 'water', label: '水面', english: 'Water', defaultName: '水面', icon: 'wave', category: 'world', description: '波打つ水。池や海に' },
   { kind: 'camera', label: 'カメラ', english: 'Camera', defaultName: 'カメラ', icon: 'camera', category: 'camera', description: 'Play 時の視点' },
   { kind: 'light-directional', label: '太陽光', english: 'Directional Light', defaultName: '太陽光', icon: 'sun', category: 'light', description: '一方向から照らす光。影を作れる' },
   { kind: 'light-point', label: 'ポイントライト', english: 'Point Light', defaultName: 'ポイントライト', icon: 'bulb', category: 'light', description: '電球のように周囲を照らす' },
@@ -141,6 +151,7 @@ export const KIND_LABELS: Record<EntityKind, string> = {
   light: 'ライト',
   ui: 'UI',
   model: '3D モデル',
+  terrain: '地形',
 };
 
 export const UI_LABELS: Record<UIType, string> = {
@@ -155,6 +166,8 @@ export function entityIcon(e: EntityData): string {
   switch (e.kind) {
     case 'model':
       return 'box';
+    case 'terrain':
+      return 'mountain';
     case 'ui':
       return e.ui?.type === 'button' ? 'pointer' : e.ui?.type === 'image' ? 'image' : e.ui?.type === 'bar' ? 'sliders' : 'font';
     case 'mesh':
@@ -186,6 +199,7 @@ export function entityTypeLabel(e: EntityData): string {
   if (e.kind === 'empty' && e.children.length > 0) return 'グループ';
   if (e.kind === 'ui' && e.ui) return UI_LABELS[e.ui.type];
   if (e.kind === 'model') return '3D モデル';
+  if (e.kind === 'terrain') return '地形';
   return KIND_LABELS[e.kind];
 }
 
@@ -411,6 +425,22 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       base.transform.position[1] = 0.1;
       base.transform.scale = [20, 1, 20];
       return base;
+    case 'terrain-flat':
+    case 'terrain-hills':
+    case 'terrain-mountains':
+    case 'terrain-island': {
+      base.kind = 'terrain';
+      const t = defaultTerrain(64, kind === 'terrain-mountains' ? 80 : 40);
+      const gen = { 'terrain-flat': null, 'terrain-hills': { type: 'hills', height: 4 }, 'terrain-mountains': { type: 'mountains', height: 18 }, 'terrain-island': { type: 'island', height: 7 } }[kind];
+      if (gen) {
+        const g = gen as { type: TerrainGenerator; height: number };
+        t.heights = generateHeights(t, { ...DEFAULT_GENERATE, ...g });
+        // 山の上の方だけ雪にする
+        t.snowLevel = Math.max(t.snowLevel, Math.round(g.height * 0.75));
+      }
+      base.terrain = t;
+      return base;
+    }
     case 'camera':
       base.kind = 'camera';
       base.camera = defaultCamera();

@@ -25,6 +25,7 @@ import { PlayHUD } from './PlayHUD';
 import { openProjectsModal } from './ProjectsModal';
 import { installShortcuts } from './shortcuts';
 import { ToolBar } from './ToolBar';
+import { TerrainBrushBar } from './TerrainBrushBar';
 import { TopBar } from './TopBar';
 import { UIPreview } from './UIPreview';
 import { ViewportOverlay } from './ViewportOverlay';
@@ -93,9 +94,10 @@ export class App implements AppContext {
     const topbar = new TopBar(this);
     const toolbar = new ToolBar(this);
     const overlay = new ViewportOverlay(this);
+    const brushBar = new TerrainBrushBar(this);
     const hud = new PlayHUD(this);
     this.uiPreview = new UIPreview(this);
-    main.append(this.uiPreview.el, overlay.el, hud.el, this.sheet.el);
+    main.append(this.uiPreview.el, overlay.el, brushBar.el, hud.el, this.sheet.el);
 
     this.sheet.addPanel('scene', new ScenePanel(this).el);
     this.sheet.addPanel('inspector', new InspectorPanel(this).el);

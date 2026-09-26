@@ -208,13 +208,20 @@ export function openAssetDetail(ctx: AppContext, a: AssetEntry): void {
 // 部品 (Prefab)
 // ------------------------------------------------------------------
 
+/** オブジェクトの下の地面 (地形) の高さ。部品や大量配置で「地面からの高さ」を保つために使う */
+export function groundUnder(ctx: AppContext, id: string): number {
+  const e = ctx.editor.scene.get(id);
+  if (!e || e.kind === 'terrain' || e.parent) return 0;
+  return ctx.viewport.surfaceHeight(e.transform.position[0], e.transform.position[2]);
+}
+
 /** 選択中のオブジェクトから部品を作る (名前を聞き、小さな画像も作る) */
 export async function makePrefab(ctx: AppContext, id: string): Promise<PrefabEntry | null> {
   const e = ctx.editor.scene.get(id);
   if (!e) return null;
   const name = await promptDialog('部品 (Prefab) の名前', e.name, { okLabel: '作成', maxLength: 100 });
   if (!name?.trim()) return null;
-  const p = A.createPrefabFromEntity(ctx.editor, id, name.trim());
+  const p = A.createPrefabFromEntity(ctx.editor, id, name.trim(), '', groundUnder(ctx, id));
   if (!p) return null;
   // 小さな画像 (3D ビューのオブジェクトを複製して描く)
   const obj = ctx.viewport.bridge.get(id);
@@ -421,6 +428,8 @@ export function openMassPlace(ctx: AppContext, source: { name: string; template:
           lastScatter = { ...o };
           const center = ctx.viewport.placementPoint();
           const placements = scatterPlacements(o, center);
+          // 地形の上ではそれぞれの場所の表面に置く
+          for (const pl of placements) pl.position[1] = ctx.viewport.surfaceHeight(pl.position[0], pl.position[2]);
           const ids = A.massPlace(ctx.editor, source.template, placements, { group, groupName: `${source.name} (${placements.length})`, center, prefabId: source.prefabId });
           if (ids.length) toast(`${placements.length} 個を置きました`, 'success', 1800);
         },

@@ -9,6 +9,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   Quaternion,
+  Ray,
   Raycaster,
   Scene,
   SphereGeometry,
@@ -31,6 +32,8 @@ import { Grid } from './Grid';
 import { SceneBridge } from './SceneBridge';
 import { EffectPreview } from './EffectPreview';
 import { findEntityObject, SceneBuilder } from './SceneBuilder';
+import { raycastTerrainObject } from './terrainMesh';
+import { TerrainBrush } from './TerrainBrush';
 import type { EntityObject } from './SceneBuilder';
 import type { ViewportInputHandlers } from './ViewportInput';
 import { ViewportInput } from './ViewportInput';
@@ -52,6 +55,8 @@ export class EditorViewport {
   readonly grid = new Grid();
   readonly env: SceneEnvironment;
   readonly effects: EffectPreview;
+  /** 地形のブラシ編集 */
+  readonly terrainBrush: TerrainBrush;
   private lastFrame = 0;
   /** アニメーション編集のプレビューで一時的に姿勢を変えているオブジェクト */
   private posed = new Set<string>();
@@ -65,6 +70,7 @@ export class EditorViewport {
   private raf = 0;
   private raycaster = new Raycaster();
   private listeners = new Set<() => void>();
+  private brushListeners = new Set<() => void>();
   private unsubs: (() => void)[] = [];
 
   constructor(
@@ -112,6 +118,17 @@ export class EditorViewport {
       handlers,
     );
 
+    this.terrainBrush = new TerrainBrush(editor, this.bridge, this.scene, (x, y) => this.setRay(x, y).ray.clone(), () => this.requestRender());
+    const brushChanged = this.terrainBrush.onChange;
+    this.terrainBrush.onChange = () => {
+      this.input.tool = this.terrainBrush.active ? this.terrainBrush : null;
+      // ブラシ中はギズモを出さない (地形をなぞりやすくする)
+      this.gizmo.setEnabled(!this.terrainBrush.active);
+      brushChanged?.();
+      for (const fn of this.brushListeners) fn();
+      this.requestRender();
+    };
+
     this.unsubs.push(
       engine.onResize((w, h) => {
         this.camera.setAspect(w / h);
@@ -158,6 +175,12 @@ export class EditorViewport {
 
   requestRender(): void {
     this.needsRender = true;
+  }
+
+  /** 地形ブラシの状態が変わったとき */
+  onBrushChange(fn: () => void): () => void {
+    this.brushListeners.add(fn);
+    return () => this.brushListeners.delete(fn);
   }
 
   /** 描画後に呼ばれるリスナー (軸ギズモ表示の更新など) */
@@ -338,7 +361,8 @@ export class EditorViewport {
     for (const id of this.editor.selection.ids) {
       const e = model.get(id);
       const obj = this.bridge.get(id);
-      if (!e || !obj || !hasPhysics(e)) continue;
+      // 地形は見た目そのものが当たり判定なので表示しない
+      if (!e || !obj || !hasPhysics(e) || e.kind === 'terrain') continue;
       obj.updateWorldMatrix(true, false);
       obj.matrixWorld.decompose(pos, quat, scale);
       const shape = computeColliderShape(e, [scale.x, scale.y, scale.z], readCollider(e.components.find((c) => c.type === 'collider')));
@@ -353,8 +377,11 @@ export class EditorViewport {
         case 'capsule':
           geo = new CapsuleGeometry(shape.radius, shape.height, 4, 12);
           break;
-        default:
+        case 'box':
           geo = new BoxGeometry(shape.half[0] * 2, shape.half[1] * 2, shape.half[2] * 2);
+          break;
+        default:
+          continue;
       }
       const m = new Mesh(geo, colliderMat);
       m.position.copy(pos).add(new Vector3(...shape.offset).applyQuaternion(quat));
@@ -405,9 +432,32 @@ export class EditorViewport {
     return null;
   }
 
-  /** 画面座標の先にある地面 (y=0) の点。オブジェクトに当たればその表面 */
+  /** 光線と表示中の地形の、いちばん手前の交点 */
+  terrainHit(ray: Ray): { point: Vector3; id: string } | null {
+    let best: { point: Vector3; id: string; d: number } | null = null;
+    for (const e of this.editor.scene.ordered()) {
+      if (e.kind !== 'terrain' || !e.terrain) continue;
+      const obj = this.bridge.get(e.id);
+      if (!obj || !isShown(obj)) continue;
+      const hit = raycastTerrainObject(obj, e.terrain, ray);
+      if (!hit) continue;
+      const d = hit.distanceTo(ray.origin);
+      if (!best || d < best.d) best = { point: hit, id: e.id, d };
+    }
+    return best ? { point: best.point, id: best.id } : null;
+  }
+
+  /** その場所の地面の高さ (地形があればその表面、無ければ 0) */
+  surfaceHeight(x: number, z: number): number {
+    const hit = this.terrainHit(new Ray(new Vector3(x, 1000, z), new Vector3(0, -1, 0)));
+    return hit ? Math.round(hit.point.y * 1000) / 1000 : 0;
+  }
+
+  /** 画面座標の先にある地面の点 (地形があればその表面、無ければ y=0 の平面) */
   groundPointAt(clientX: number, clientY: number): Vector3 | null {
     const ray = this.setRay(clientX, clientY).ray;
+    const hit = this.terrainHit(ray);
+    if (hit) return hit.point;
     if (ray.direction.y >= -0.01) return null;
     const t = -ray.origin.y / ray.direction.y;
     if (t <= 0 || t > 500) return null;
@@ -416,11 +466,21 @@ export class EditorViewport {
 
   /** 新しいオブジェクトを置く位置 (画面中央の地面。スナップ有効時はグリッドに合わせる) */
   placementPoint(at?: { x: number; y: number }): Vec3 {
-    const p = (at ? this.groundPointAt(at.x, at.y) : null) ?? this.camera.groundPointAtCenter();
+    let p = at ? this.groundPointAt(at.x, at.y) : null;
+    if (!p && !at) {
+      // 画面の中央 (カメラの向き) の先。地形があればその表面
+      const cam = this.camera.camera;
+      const dir = cam.getWorldDirection(new Vector3());
+      p = this.terrainHit(new Ray(cam.getWorldPosition(new Vector3()), dir))?.point ?? null;
+    }
+    p ??= this.camera.groundPointAtCenter();
     const step = this.editor.settings.snapEnabled ? this.editor.settings.snapMove : 0.5;
     const base: Vec3 = [snapTo(p.x, step), 0, snapTo(p.z, step)];
     // 場所を指定された場合はそのまま。画面中央に置く場合は既存の物と重ならない場所を探す
-    return at ? base : this.findFreeSpot(base, Math.max(1, step));
+    const spot = at ? base : this.findFreeSpot(base, Math.max(1, step));
+    // 地形の上なら、その表面の高さ
+    const y = this.surfaceHeight(spot[0], spot[2]);
+    return [spot[0], y, spot[2]];
   }
 
   /** 既存オブジェクトと重ならない地面上の位置を、近い順 (渦巻き状) に探す */
@@ -520,4 +580,10 @@ export class EditorViewport {
     this.bridge.dispose();
     this.grid.dispose();
   }
+}
+
+/** 自分と親がすべて表示中か */
+function isShown(o: Object3D): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) if (!p.visible) return false;
+  return true;
 }

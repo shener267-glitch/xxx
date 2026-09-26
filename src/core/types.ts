@@ -97,7 +97,7 @@ export interface ComponentData {
   props: Record<string, unknown>;
 }
 
-export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light' | 'ui' | 'model';
+export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light' | 'ui' | 'model' | 'terrain';
 
 export type UIType = 'text' | 'button' | 'image' | 'bar';
 export type UIAnchor = 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right';
@@ -151,6 +151,27 @@ export interface ModelData {
   animation: string;
 }
 
+/**
+ * 地形 (高さの格子)。ローカル座標の中心が原点で、一辺 size (m) の正方形。
+ * heights[r * (resolution + 1) + c] が x = -size/2 + c * size/resolution, z = -size/2 + r * size/resolution の高さ
+ */
+export interface TerrainData {
+  /** 一辺の分割数 (8〜128) */
+  resolution: number;
+  /** 一辺の長さ (m) */
+  size: number;
+  heights: number[];
+  /** 高さと傾きで自動で色を塗る (砂・草・岩・雪)。false なら草の色の単色 */
+  autoColor: boolean;
+  colors: { sand: string; grass: string; rock: string; snow: string };
+  /** この高さより低い所は砂 (m) */
+  sandLevel: number;
+  /** この高さより高い所は雪 (m) */
+  snowLevel: number;
+  /** ローポリ風 (面ごとに陰影) */
+  flatShading: boolean;
+}
+
 export interface EntityData {
   id: string;
   name: string;
@@ -167,6 +188,7 @@ export interface EntityData {
   camera?: CameraData;
   ui?: UIElementData;
   model?: ModelData;
+  terrain?: TerrainData;
   /** 元になった Prefab (Prefab から置いたもの) */
   prefab?: string;
   components: ComponentData[];

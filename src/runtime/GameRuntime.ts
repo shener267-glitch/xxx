@@ -1,4 +1,4 @@
-import { AnimationMixer, Box3, LoopOnce, LoopRepeat, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
+import { AnimationMixer, Box3, LoopOnce, LoopRepeat, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Ray, Scene, Vector3 } from 'three';
 import type { AnimationAction, AnimationClip } from 'three';
 import type { Object3D } from 'three';
 import type { ComponentInstance, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
@@ -11,6 +11,7 @@ import type { EngineRenderer } from '../engine/EngineRenderer';
 import { sharedUniforms } from '../engine/materials';
 import { SceneBuilder } from '../engine/SceneBuilder';
 import { findSunDirection, SceneEnvironment } from '../engine/SceneEnvironment';
+import { raycastTerrainObject } from '../engine/terrainMesh';
 import type { EntityObject } from '../engine/SceneBuilder';
 import { resolveBodySpec } from '../engine/colliderShapes';
 import type { ParticlePreset } from '../engine/particles';
@@ -162,6 +163,7 @@ export function readSave(key: string | null | undefined): SaveData | null {
 }
 
 const _box = new Box3();
+const _groundRay = new Ray();
 const _v = new Vector3();
 
 export class GameRuntime implements RuntimeAPI {
@@ -1071,6 +1073,21 @@ export class GameRuntime implements RuntimeAPI {
     this.audio.play('builtin:talk', 0.5);
     await this.ui.showDialog(name, pages, () => this.audio.play('builtin:talk', 0.3));
     this.inputImpl.clearQueued();
+  }
+
+  groundHeightAt(x: number, z: number): number | null {
+    let best: number | null = null;
+    const ray = _groundRay;
+    ray.origin.set(x, 5000, z);
+    ray.direction.set(0, -1, 0);
+    for (const e of Object.values(this.sceneData.entities)) {
+      if (e.kind !== 'terrain' || !e.terrain) continue;
+      const obj = this.objects.get(e.id);
+      if (!obj || !obj.visible) continue;
+      const hit = raycastTerrainObject(obj, e.terrain, ray);
+      if (hit && (best === null || hit.y > best)) best = hit.y;
+    }
+    return best;
   }
 
   worldPosition(entityId: string, out = new Vector3()): Vector3 {

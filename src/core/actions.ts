@@ -635,11 +635,11 @@ export function setPrefabs(editor: Editor, prefabs: PrefabEntry[], label: string
 }
 
 /** 選択中のオブジェクト (と子) から Prefab を作る */
-export function createPrefabFromEntity(editor: Editor, id: string, name?: string, folder = ''): PrefabEntry | null {
+export function createPrefabFromEntity(editor: Editor, id: string, name?: string, folder = '', groundY = 0): PrefabEntry | null {
   const model = editor.scene;
   const e = model.get(id);
   if (!e) return null;
-  const prefab = createPrefab(model.subtree(id), name ?? e.name, folder);
+  const prefab = createPrefab(model.subtree(id), name ?? e.name, folder, groundY);
   const names = editor.project.prefabs.map((p) => p.name);
   prefab.name = uniqueName(prefab.name, names);
   setPrefabs(editor, [...editor.project.prefabs, prefab], `部品「${prefab.name}」を作成`);
@@ -658,13 +658,13 @@ export function placePrefab(editor: Editor, prefabId: string, position: Vec3): s
 }
 
 /** 置いたオブジェクトの今の状態で Prefab を上書きする */
-export function updatePrefabFromEntity(editor: Editor, entityId: string): boolean {
+export function updatePrefabFromEntity(editor: Editor, entityId: string, groundY = 0): boolean {
   const e = editor.scene.get(entityId);
   if (!e?.prefab) return false;
   const list = clone(editor.project.prefabs);
   const i = list.findIndex((p) => p.id === e.prefab);
   if (i < 0) return false;
-  const next = createPrefab(editor.scene.subtree(entityId), list[i].name, list[i].folder);
+  const next = createPrefab(editor.scene.subtree(entityId), list[i].name, list[i].folder, groundY);
   list[i] = { ...next, id: list[i].id, createdAt: list[i].createdAt, thumb: list[i].thumb };
   return setPrefabs(editor, list, `部品「${list[i].name}」を更新`);
 }
@@ -682,12 +682,15 @@ export function massPlace(
   if (template.length === 0 || placements.length === 0) return [];
   const baseRot = template[0].transform.rotation;
   const baseScale = template[0].transform.scale;
+  // 地面からの高さ (キューブなら 0.5) を保つ
+  const baseY = template[0].transform.position[1];
   const trees = placements.map((pl) => {
     const tree = cloneWithNewIds(template);
     const r = tree[0];
     r.parent = null;
     if (opts.prefabId) r.prefab = opts.prefabId;
-    const pos: Vec3 = opts.group ? [pl.position[0] - opts.center[0], pl.position[1] - opts.center[1], pl.position[2] - opts.center[2]] : pl.position;
+    const y = pl.position[1] + baseY * pl.scale;
+    const pos: Vec3 = opts.group ? [pl.position[0] - opts.center[0], y - opts.center[1], pl.position[2] - opts.center[2]] : [pl.position[0], y, pl.position[2]];
     r.transform.position = pos;
     r.transform.rotation = [baseRot[0], (baseRot[1] + pl.rotationY) % 360, baseRot[2]];
     r.transform.scale = [baseScale[0] * pl.scale, baseScale[1] * pl.scale, baseScale[2] * pl.scale];

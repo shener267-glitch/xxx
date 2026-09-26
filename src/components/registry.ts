@@ -77,6 +77,8 @@ export interface RuntimeAPI {
   getCameraMode(): PlayCameraMode;
   /** ワールド座標 */
   worldPosition(entityId: string, out?: Vector3): Vector3;
+  /** その場所の地形の表面の高さ (地形が無ければ null) */
+  groundHeightAt(x: number, z: number): number | null;
   /** 2つのオブジェクトの見た目の箱が重なっているか (margin だけ広げて判定) */
   overlaps(a: string, b: string, margin?: number): boolean;
   /** 見た目の箱 (ワールド座標。1フレームの間キャッシュされる) */

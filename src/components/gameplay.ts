@@ -75,6 +75,8 @@ export function registerGameplayComponents(): void {
       // 物理を使わない場合の簡易的な重力
       let vy = 0;
       let baseY = 0;
+      /** 地形の上では、地形の表面から体の原点までの高さ (地形が無ければ null) */
+      let footOffset: number | null = null;
       let grounded = true;
       let attackAnim = 0;
       const baseScale = ctx.object.scale.clone();
@@ -133,6 +135,9 @@ export function registerGameplayComponents(): void {
       return {
         start() {
           baseY = ctx.object.position.y;
+          const p = rt.worldPosition(id, _v);
+          const g = rt.groundHeightAt(p.x, p.z);
+          footOffset = g !== null ? Math.max(0, p.y - g) : null;
           rt.registerPlayer(id, handle);
         },
         update(dt) {
@@ -181,6 +186,16 @@ export function registerGameplayComponents(): void {
           } else {
             ctx.object.position.x += dx * speed * dt;
             ctx.object.position.z += dz * speed * dt;
+            // 地形の上なら、その場所の地面の高さに合わせる (下り坂で離れたら落ちる)
+            if (footOffset !== null && !ctx.entity.parent) {
+              const g = rt.groundHeightAt(ctx.object.position.x, ctx.object.position.z);
+              if (g !== null) {
+                const floor = g + footOffset;
+                if (grounded && ctx.object.position.y - floor > 0.6) grounded = false;
+                baseY = floor;
+                if (grounded) ctx.object.position.y = floor;
+              }
+            }
             if (jump && grounded && jumpHeight > 0) {
               vy = jumpSpeed;
               grounded = false;
