@@ -1,7 +1,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { getComponentDef } from '../components/registry';
 import type { CreateKind } from './catalog';
-import { catalogItem, createEntity } from './catalog';
+import { catalogItem, createEntity, MATERIAL_PRESETS } from './catalog';
 import {
   AddEntitiesCommand,
   LambdaCommand,
@@ -9,12 +9,13 @@ import {
   SetTransformsCommand,
   SnapshotCommand,
   UpdateEntitiesCommand,
+  ValueCommand,
 } from './commands';
 import type { Editor } from './Editor';
 import { createEmptyScene } from './project';
 import type { SceneModel } from './SceneModel';
 import { matrixToTransform } from './transformMath';
-import type { EntityData, EnvironmentData, SceneData, TransformData, Vec3 } from './types';
+import type { EntityData, EnvironmentData, MaterialPreset, PhysicsSettings, SceneData, TransformData, Vec3 } from './types';
 import { clone, createId, setPath, uniqueName } from './util';
 
 /**
@@ -426,15 +427,44 @@ export function setComponentProp(editor: Editor, id: string, componentId: string
 // シーン設定
 // ------------------------------------------------------------------
 
-export function setEnvironment(editor: Editor, patch: Partial<EnvironmentData>, label = '背景を変更'): boolean {
+export function setEnvironment(editor: Editor, patch: Partial<EnvironmentData>, label = '環境を変更', mergeKey?: string): boolean {
   const scene = editor.sceneData;
   const before = clone(scene.environment);
-  const after = { ...clone(scene.environment), ...patch };
+  const after = { ...clone(scene.environment), ...clone(patch) };
   const apply = (env: EnvironmentData) => {
-    scene.environment = clone(env);
+    scene.environment = env;
     editor.events.emit('environment-changed', undefined);
   };
-  return editor.execute(new LambdaCommand(label, () => apply(after), () => apply(before)));
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `env:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+export function setPhysicsSettings(editor: Editor, patch: Partial<PhysicsSettings>, label = '物理設定を変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.physics);
+  const after = { ...clone(scene.physics), ...clone(patch) };
+  const apply = (v: PhysicsSettings) => {
+    scene.physics = v;
+    editor.events.emit('environment-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `phys:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** マテリアルのプリセットを適用する (推奨値もまとめて設定し、1回で元に戻せる) */
+export function applyMaterialPreset(editor: Editor, ids: readonly string[], preset: MaterialPreset): boolean {
+  const info = MATERIAL_PRESETS.find((p) => p.preset === preset);
+  const targets = ids.filter((id) => editor.scene.get(id)?.mesh);
+  if (!info || targets.length === 0) return false;
+  return updateEntities(
+    editor,
+    targets,
+    (e) => {
+      Object.assign(e.mesh!.material, clone(info.values), { preset });
+      if (preset === 'water') e.mesh!.castShadow = false;
+    },
+    `マテリアルを「${info.label}」に変更`,
+  );
 }
 
 export function setPlayer(editor: Editor, id: string | null): boolean {

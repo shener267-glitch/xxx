@@ -1,3 +1,4 @@
+import type { AssetService } from '../app/AssetService';
 import type { PlayController } from '../app/PlayController';
 import type { ProjectService } from '../app/ProjectService';
 import type { Editor } from '../core/Editor';
@@ -11,6 +12,7 @@ export interface AppContext {
   editor: Editor;
   viewport: EditorViewport;
   projects: ProjectService;
+  assets: AssetService;
   play: PlayController;
   openTab(tab: TabId, state?: SheetState): void;
   closeSheet(): void;

@@ -2,15 +2,15 @@ import { Matrix4 } from 'three';
 import type { PropSchema } from '../../components/registry';
 import { getComponentDef, listComponentDefs } from '../../components/registry';
 import * as A from '../../core/actions';
-import { entityIcon, entityTypeLabel, LIGHT_LABELS, SHAPE_LABELS } from '../../core/catalog';
-import type { EntityData, PrimitiveShape, Vec3 } from '../../core/types';
+import { entityIcon, entityTypeLabel, LIGHT_LABELS, MATERIAL_PRESETS, PATTERN_LABELS, SHAPE_LABELS } from '../../core/catalog';
+import type { EntityData, EnvironmentData, MaterialPattern, MaterialPreset, PrimitiveShape, SkyType, Vec3, WeatherType } from '../../core/types';
 import { deepEqual, getPath } from '../../core/util';
 import type { AppContext } from '../context';
 import { button, clear, h, rafThrottle } from '../dom';
 import { icon } from '../icons';
 import { openParentPicker } from '../menus';
 import { actionSheet, toast } from '../overlays';
-import { ColorField, fieldRow, NumberField, section, Select, Slider, TextField, Toggle, Vec3Field } from '../widgets';
+import { ColorField, fieldRow, NumberField, section as sectionWidget, Select, Slider, TextField, Toggle, Vec3Field } from '../widgets';
 
 type Refresher = () => void;
 
@@ -25,13 +25,15 @@ export class InspectorPanel {
   private refreshers: Refresher[] = [];
   private structureKey = '';
   private uniformScale = true;
+  /** セクションの開閉状態 (再構築しても保つ) */
+  private collapsed = new Map<string, boolean>();
   private scheduleUpdate = rafThrottle(() => this.update());
 
   constructor(private ctx: AppContext) {
     this.body = h('div', { class: 'inspector-body' });
     this.el = h('div', { class: 'panel inspector-panel', attrs: { 'data-testid': 'inspector' } }, this.body);
     const ev = ctx.editor.events;
-    for (const type of ['selection-changed', 'entity-changed', 'scene-loaded', 'environment-changed', 'hierarchy-changed', 'project-changed', 'entity-removed'] as const) {
+    for (const type of ['selection-changed', 'entity-changed', 'scene-loaded', 'environment-changed', 'hierarchy-changed', 'project-changed', 'entity-removed', 'assets-changed'] as const) {
       ev.on(type, this.scheduleUpdate);
     }
     this.update();
@@ -67,6 +69,21 @@ export class InspectorPanel {
     A.setEntityValue(this.ctx.editor, this.ids, path, value, { label, mergeKey: merge ? path : undefined });
   }
 
+  /** 開閉状態を記憶するセクション */
+  private section(
+    title: string,
+    iconName: string,
+    body: HTMLElement[],
+    opts: { collapsed?: boolean; testId?: string } = {},
+  ): HTMLElement {
+    const key = opts.testId ?? title;
+    return sectionWidget(title, iconName, body, {
+      ...opts,
+      collapsed: this.collapsed.get(key) ?? opts.collapsed,
+      onToggle: (c) => this.collapsed.set(key, c),
+    });
+  }
+
   private bind(fn: Refresher): void {
     this.refreshers.push(fn);
     fn();
@@ -74,7 +91,11 @@ export class InspectorPanel {
 
   private computeKey(): string {
     const list = this.entities;
-    if (list.length === 0) return `scene:${this.ctx.editor.sceneData.id}`;
+    if (list.length === 0) {
+      const sd = this.ctx.editor.sceneData;
+      const env = sd.environment;
+      return `scene:${sd.id}:${env.sky.type}:${env.fog.enabled}:${env.weather.type}`;
+    }
     return list
       .map((e) =>
         [e.id, e.kind, e.mesh?.shape, e.mesh?.material.preset, e.light?.type, e.components.map((c) => `${c.id}:${c.type}`).join(',')].join('|'),
@@ -119,8 +140,6 @@ export class InspectorPanel {
     const nameField = new TextField({ title: 'シーン名', testId: 'scene-name', onChange: (v) => A.renameScene(ed, ed.sceneData.id, v) });
     this.bind(() => nameField.set(ed.sceneData.name));
 
-    const bg = new ColorField({ title: '背景色', testId: 'scene-bg', onChange: (hex) => A.setEnvironment(ed, { background: hex }) });
-    this.bind(() => bg.set(ed.sceneData.environment.background));
 
     const playerSelect = h('select', {
       class: 'select',
@@ -154,12 +173,132 @@ export class InspectorPanel {
 
     this.body.append(
       hint,
-      section('シーン設定', 'layers', [
+      this.section('シーン設定', 'layers', [
         fieldRow('シーン名', nameField.el),
-        fieldRow('背景色', bg.el),
         fieldRow('プレイヤー', playerSelect, { hint: '三人称カメラで操作する対象' }),
       ]),
-      section('統計', 'info', [stats]),
+      ...this.environmentSections(),
+      this.physicsSection(),
+      this.section('統計', 'info', [stats]),
+    );
+  }
+
+  /** 空・霧・映り込み・天候 */
+  private environmentSections(): HTMLElement[] {
+    const ed = this.ctx.editor;
+    const env = () => ed.sceneData.environment;
+    const setEnv = (patch: Partial<EnvironmentData>, label: string, key?: string) => A.setEnvironment(ed, patch, label, key);
+    const colorRow = (label: string, get: () => string, set: (hex: string) => void, testId?: string) => {
+      const f = new ColorField({ title: label, testId, onChange: set });
+      this.bind(() => f.set(get()));
+      return fieldRow(label, f.el);
+    };
+    const sliderRow = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, testId?: string, hint?: string) => {
+      const f = new Slider({ min, max, step, title: label, testId, onChange: set });
+      this.bind(() => f.set(get()));
+      return fieldRow(label, f.el, { hint });
+    };
+
+    // 空
+    const skyType = new Select<SkyType>({
+      options: [
+        { value: 'gradient', label: 'グラデーションの空' },
+        { value: 'physical', label: 'リアルな空 (太陽光と連動)' },
+        { value: 'color', label: '単色の背景' },
+      ],
+      title: '空の種類',
+      testId: 'env-sky',
+      onChange: (v) => setEnv({ sky: { ...env().sky, type: v } }, '空の種類を変更'),
+    });
+    this.bind(() => skyType.set(env().sky.type));
+    const skyRows: HTMLElement[] = [fieldRow('空の種類', skyType.el)];
+    const t = env().sky.type;
+    if (t === 'color') {
+      skyRows.push(colorRow('背景色', () => env().background, (hex) => setEnv({ background: hex }, '背景色を変更', 'bg'), 'scene-bg'));
+    } else if (t === 'gradient') {
+      skyRows.push(
+        colorRow('空の上', () => env().sky.topColor, (hex) => setEnv({ sky: { ...env().sky, topColor: hex } }, '空の色を変更', 'skyTop')),
+        colorRow('地平線', () => env().sky.horizonColor, (hex) => setEnv({ sky: { ...env().sky, horizonColor: hex } }, '空の色を変更', 'skyHorizon')),
+        colorRow('地面側', () => env().sky.bottomColor, (hex) => setEnv({ sky: { ...env().sky, bottomColor: hex } }, '空の色を変更', 'skyBottom')),
+      );
+    } else {
+      skyRows.push(sliderRow('かすみ', 1, 20, 0.5, () => env().sky.turbidity, (v) => setEnv({ sky: { ...env().sky, turbidity: v } }, '空のかすみを変更', 'turbidity'), undefined, '大きいほど白っぽい空'));
+      skyRows.push(h('p', { class: 'field-note', text: '太陽の位置は「太陽光」オブジェクトの回転で変わります。' }));
+    }
+    const refl = new Toggle({ title: '映り込み', testId: 'env-reflections', onChange: (v) => setEnv({ reflections: v }, v ? '映り込みを有効化' : '映り込みを無効化') });
+    this.bind(() => refl.set(env().reflections));
+    skyRows.push(
+      fieldRow('映り込み', refl.el, { hint: '金属やガラスに空が映る' }),
+      sliderRow('明るさ (露出)', 0.2, 2.5, 0.05, () => env().exposure, (v) => setEnv({ exposure: v }, '明るさを変更', 'exposure'), 'env-exposure'),
+    );
+
+    // 霧
+    const fogOn = new Toggle({ title: '霧', testId: 'env-fog', onChange: (v) => setEnv({ fog: { ...env().fog, enabled: v } }, v ? '霧を有効化' : '霧を無効化') });
+    this.bind(() => fogOn.set(env().fog.enabled));
+    const fogRows: HTMLElement[] = [fieldRow('霧を出す', fogOn.el)];
+    if (env().fog.enabled) {
+      const near = new NumberField({ step: 1, min: 0, title: '霧の開始距離', onChange: (v) => setEnv({ fog: { ...env().fog, near: v } }, '霧を変更', 'fogNear') });
+      this.bind(() => near.set(env().fog.near));
+      const far = new NumberField({ step: 5, min: 1, title: '霧の終了距離', onChange: (v) => setEnv({ fog: { ...env().fog, far: v } }, '霧を変更', 'fogFar') });
+      this.bind(() => far.set(env().fog.far));
+      fogRows.push(
+        colorRow('霧の色', () => env().fog.color, (hex) => setEnv({ fog: { ...env().fog, color: hex } }, '霧の色を変更', 'fogColor')),
+        fieldRow('始まる距離', near.el),
+        fieldRow('真っ白になる距離', far.el),
+      );
+    }
+
+    // 天候
+    const weather = new Select<WeatherType>({
+      options: [
+        { value: 'none', label: '晴れ (なし)' },
+        { value: 'rain', label: '雨' },
+        { value: 'snow', label: '雪' },
+      ],
+      title: '天候',
+      testId: 'env-weather',
+      onChange: (v) => setEnv({ weather: { ...env().weather, type: v } }, '天候を変更'),
+    });
+    this.bind(() => weather.set(env().weather.type));
+    const weatherRows: HTMLElement[] = [fieldRow('天候', weather.el)];
+    if (env().weather.type !== 'none') {
+      weatherRows.push(
+        sliderRow('強さ', 0.05, 1, 0.05, () => env().weather.intensity, (v) => setEnv({ weather: { ...env().weather, intensity: v } }, '天候の強さを変更', 'weather')),
+        h('p', { class: 'field-note', text: '天候は Play 中に表示されます (設定の「エフェクトのプレビュー」で編集中も表示)。' }),
+      );
+    }
+    return [
+      this.section('空・明るさ', 'sun', skyRows, { testId: 'sec-sky' }),
+      this.section('霧', 'cloud', fogRows, { collapsed: !env().fog.enabled, testId: 'sec-fog' }),
+      this.section('天候', 'cloud', weatherRows, { collapsed: env().weather.type === 'none', testId: 'sec-weather' }),
+    ];
+  }
+
+  private physicsSection(): HTMLElement {
+    const ed = this.ctx.editor;
+    const phys = () => ed.sceneData.physics;
+    const on = new Toggle({ title: '物理', testId: 'phys-enabled', onChange: (v) => A.setPhysicsSettings(ed, { enabled: v }, v ? '物理を有効化' : '物理を無効化') });
+    this.bind(() => on.set(phys().enabled));
+    const gravity = new Vec3Field({
+      title: '重力',
+      step: 0.5,
+      testId: 'phys-gravity',
+      onChange: (axis, v) => {
+        const g = [...phys().gravity] as Vec3;
+        g[axis] = v;
+        A.setPhysicsSettings(ed, { gravity: g }, '重力を変更', 'gravity');
+      },
+    });
+    this.bind(() => gravity.set(phys().gravity));
+    return this.section(
+      '物理',
+      'zap',
+      [
+        fieldRow('物理演算', on.el, { hint: 'Play 中に落下・衝突を計算' }),
+        fieldRow('重力 (m/s²)', gravity.el, { stacked: true }),
+        h('p', { class: 'field-note', text: 'オブジェクトに「物理 (Rigidbody)」や「当たり判定 (Collider)」の動作を追加すると、落下や衝突をします。地球の重力は Y = -9.81 です。' }),
+      ],
+      { collapsed: true, testId: 'sec-physics' },
     );
   }
 
@@ -293,7 +432,7 @@ export class InspectorPanel {
         toast(this.uniformScale ? '縦横比を固定して拡大縮小します' : '各軸を個別に変更します', 'info', 1400);
       },
     });
-    return section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
+    return this.section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
       testId: 'sec-transform',
     });
   }
@@ -331,23 +470,29 @@ export class InspectorPanel {
     this.bind(() => cast.set(this.commonPath<boolean>('mesh.castShadow')));
     const receive = new Toggle({ title: '影を受ける', onChange: (v) => this.set('mesh.receiveShadow', v, '影の設定を変更', false) });
     this.bind(() => receive.set(this.commonPath<boolean>('mesh.receiveShadow')));
-    return section('メッシュ', 'cube', [fieldRow('形状', shape.el), fieldRow('影を落とす', cast.el), fieldRow('影を受ける', receive.el)]);
+    return this.section('メッシュ', 'cube', [fieldRow('形状', shape.el), fieldRow('影を落とす', cast.el), fieldRow('影を受ける', receive.el)]);
   }
 
   private materialSection(list: EntityData[]): HTMLElement {
-    const preset = new Select<'standard' | 'unlit'>({
-      options: [
-        { value: 'standard', label: '標準 (光の影響を受ける)' },
-        { value: 'unlit', label: 'アンリット (光の影響なし)' },
-      ],
+    const ed = this.ctx.editor;
+    const preset = new Select<MaterialPreset>({
+      options: MATERIAL_PRESETS.map((p) => ({ value: p.preset, label: `${p.label} — ${p.description}` })),
       title: 'マテリアルの種類',
       testId: 'insp-preset',
-      onChange: (v) => this.set('mesh.material.preset', v, 'マテリアルを変更', false),
+      onChange: (v) => A.applyMaterialPreset(ed, this.ids, v),
     });
-    this.bind(() => preset.set(this.commonPath<'standard' | 'unlit'>('mesh.material.preset')));
+    this.bind(() => preset.set(this.commonPath<MaterialPreset>('mesh.material.preset')));
 
     const color = new ColorField({ title: '色', testId: 'insp-color', onChange: (hex) => this.set('mesh.material.color', hex, '色を変更') });
     this.bind(() => color.set(this.commonPath<string>('mesh.material.color')));
+
+    const pattern = new Select<MaterialPattern>({
+      options: (Object.keys(PATTERN_LABELS) as MaterialPattern[]).map((p) => ({ value: p, label: PATTERN_LABELS[p] })),
+      title: '模様',
+      testId: 'insp-pattern',
+      onChange: (v) => this.set('mesh.material.pattern', v, '模様を変更', false),
+    });
+    this.bind(() => pattern.set(this.commonPath<MaterialPattern>('mesh.material.pattern')));
 
     const slider = (path: string, label: string, min: number, max: number, step: number, testId?: string) => {
       const s = new Slider({ min, max, step, title: label, testId, onChange: (v) => this.set(path, v, `${label}を変更`) });
@@ -357,20 +502,110 @@ export class InspectorPanel {
     const wire = new Toggle({ title: 'ワイヤーフレーム', onChange: (v) => this.set('mesh.material.wireframe', v, '表示方法を変更', false) });
     this.bind(() => wire.set(this.commonPath<boolean>('mesh.material.wireframe')));
 
-    const standard = list.every((e) => e.mesh?.material.preset !== 'unlit');
-    const rows: HTMLElement[] = [fieldRow('種類', preset.el), fieldRow('色', color.el)];
-    if (standard) {
+    const lit = list.every((e) => e.mesh?.material.preset !== 'unlit');
+    const rows: HTMLElement[] = [
+      fieldRow('種類', preset.el, { stacked: true }),
+      fieldRow('色', color.el),
+      fieldRow('模様', pattern.el),
+      fieldRow('画像', this.textureField(), { hint: 'テクスチャ' }),
+    ];
+    if (lit) {
       const emissive = new ColorField({ title: '発光色', onChange: (hex) => this.set('mesh.material.emissive', hex, '発光色を変更') });
       this.bind(() => emissive.set(this.commonPath<string>('mesh.material.emissive')));
       rows.push(
         fieldRow('粗さ', slider('mesh.material.roughness', '粗さ', 0, 1, 0.01, 'insp-roughness'), { hint: '0 でツルツル' }),
         fieldRow('金属感', slider('mesh.material.metalness', '金属感', 0, 1, 0.01, 'insp-metalness')),
+        fieldRow('映り込み', slider('mesh.material.envIntensity', '映り込み', 0, 3, 0.05, 'insp-env'), { hint: '周囲の反射の強さ' }),
         fieldRow('発光色', emissive.el),
         fieldRow('発光の強さ', slider('mesh.material.emissiveIntensity', '発光の強さ', 0, 10, 0.1)),
       );
     }
     rows.push(fieldRow('不透明度', slider('mesh.material.opacity', '不透明度', 0, 1, 0.01, 'insp-opacity')), fieldRow('ワイヤーフレーム', wire.el));
-    return section('マテリアル', 'palette', rows, { testId: 'sec-material' });
+    const uvSection = this.uvSection();
+    return h('div', null, this.section('マテリアル', 'palette', rows, { testId: 'sec-material' }), uvSection);
+  }
+
+  /** 画像テクスチャの選択 (読み込み・既存アセットから選択・外す) */
+  private textureField(): HTMLElement {
+    const assets = this.ctx.assets;
+    const thumb = h('span', { class: 'tex-thumb' });
+    const label = h('span', { class: 'tex-name' });
+    const btn = h(
+      'button',
+      {
+        class: 'tex-field',
+        attrs: { type: 'button', 'data-testid': 'insp-texture' },
+        on: {
+          click: () => {
+            const images = assets.byType('image');
+            const current = this.commonPath<string | null>('mesh.material.texture');
+            const setTex = (id: string | null) => this.set('mesh.material.texture', id, id ? 'テクスチャを設定' : 'テクスチャを外す', false);
+            actionSheet('画像テクスチャ', [
+              {
+                label: '画像を読み込む…',
+                icon: 'upload',
+                testId: 'tex-import',
+                onSelect: () => {
+                  void assets.pickAndImport('image', '', false).then(({ added, errors }) => {
+                    errors.forEach((e) => toast(e, 'error', 3500));
+                    if (added[0]) setTex(added[0].id);
+                  });
+                },
+              },
+              ...(current ? [{ label: 'テクスチャを外す', icon: 'x', testId: 'tex-clear', onSelect: () => setTex(null) }] : []),
+              ...(images.length > 0 ? (['separator'] as const) : []),
+              ...images.map((a) => ({ label: a.name, icon: 'image', checked: a.id === current, onSelect: () => setTex(a.id) })),
+            ]);
+          },
+        },
+      },
+      thumb,
+      label,
+    );
+    this.bind(() => {
+      const id = this.commonPath<string | null>('mesh.material.texture');
+      const a = assets.find(id);
+      label.textContent = a ? a.name : 'なし';
+      thumb.style.backgroundImage = '';
+      thumb.innerHTML = a ? '' : icon('image', 18);
+      if (a) {
+        void assets.objectUrl(a.id).then((url) => {
+          if (url) thumb.style.backgroundImage = `url(${url})`;
+        });
+      }
+    });
+    return btn;
+  }
+
+  /** テクスチャの配置 (繰り返し・ずれ・回転) */
+  private uvSection(): HTMLElement {
+    const pair = (path: string, title: string, step: number) => {
+      const fields = (['U', 'V'] as const).map(
+        (axis, i) =>
+          new NumberField({
+            label: axis,
+            step,
+            title: `${title} ${axis}`,
+            testId: `insp-${path.split('.').pop()}-${axis.toLowerCase()}`,
+            onChange: (v) => this.set(`mesh.material.${path}.${i}`, v, `${title}を変更`),
+          }),
+      );
+      this.bind(() => fields.forEach((f, i) => f.set(this.commonPath<number>(`mesh.material.${path}.${i}`))));
+      return h('div', { class: 'vec3-field' }, fields.map((f) => f.el));
+    };
+    const rot = new NumberField({ step: 5, title: 'テクスチャの回転', onChange: (v) => this.set('mesh.material.uvRotation', v, 'テクスチャの回転を変更') });
+    this.bind(() => rot.set(this.commonPath<number>('mesh.material.uvRotation')));
+    return this.section(
+      'テクスチャの配置 (UV)',
+      'grid',
+      [
+        fieldRow('繰り返し', pair('uvScale', '繰り返し', 0.1), { stacked: true }),
+        fieldRow('ずれ', pair('uvOffset', 'ずれ', 0.05), { stacked: true }),
+        fieldRow('回転 (度)', rot.el),
+        h('p', { class: 'field-note', text: '模様や画像の大きさ・向きを調整します。大きな床は「繰り返し」を増やすと細かくなります。' }),
+      ],
+      { collapsed: true, testId: 'sec-uv' },
+    );
   }
 
   private lightSection(list: EntityData[]): HTMLElement {
@@ -417,7 +652,7 @@ export class InspectorPanel {
     if (type === 'directional') {
       rows.push(h('p', { class: 'field-note', text: '太陽光は「回転」で光の向きが変わります。' }));
     }
-    return section('ライト', 'sun', rows);
+    return this.section('ライト', 'sun', rows);
   }
 
   private cameraSection(single: EntityData | null): HTMLElement {
@@ -457,7 +692,7 @@ export class InspectorPanel {
         ),
       );
     }
-    return section('カメラ', 'camera', rows);
+    return this.section('カメラ', 'camera', rows);
   }
 
   private componentsSection(e: EntityData): HTMLElement {
@@ -512,7 +747,7 @@ export class InspectorPanel {
       },
     });
     const note = h('p', { class: 'field-note', text: '動作は Play 中に実行されます。物理・イベント・プレイヤー操作などは今後のアップデートで追加されます。' });
-    return section('動作 (コンポーネント)', 'sparkles', [...cards, add, note], { testId: 'sec-components' });
+    return this.section('動作 (コンポーネント)', 'sparkles', [...cards, add, note], { testId: 'sec-components' });
   }
 
   private componentProp(entityId: string, compId: string, schema: PropSchema): HTMLElement {
@@ -587,6 +822,6 @@ export class InspectorPanel {
       this.bind(() => player.set(ed.sceneData.playerId === e.id));
       rows.push(fieldRow('プレイヤー', player.el, { hint: '三人称カメラで操作する' }));
     }
-    return section('階層・ゲーム設定', 'group', rows, { collapsed: false });
+    return this.section('階層・ゲーム設定', 'group', rows, { collapsed: false });
   }
 }

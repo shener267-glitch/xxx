@@ -8,7 +8,7 @@ import { createProject } from './core/project';
 import { loadSettings } from './core/settings';
 import type { ProjectData } from './core/types';
 import { EngineRenderer } from './engine/EngineRenderer';
-import { createRepository, getLastProjectId, requestPersistence } from './storage/ProjectRepository';
+import { createStorage, getLastProjectId, requestPersistence } from './storage/ProjectRepository';
 import { App } from './ui/App';
 import { h } from './ui/dom';
 import { toast } from './ui/overlays';
@@ -73,7 +73,8 @@ async function boot(): Promise<void> {
   }
 
   registerBuiltinComponents();
-  const repo = await createRepository();
+  const storage = await createStorage();
+  const repo = storage.projects;
   if (repo.kind === 'memory') {
     setTimeout(() => toast('この環境では保存できません (プライベートモード等)。書き出しでファイルに保存してください', 'warn', 6000), 800);
   }
@@ -95,7 +96,7 @@ async function boot(): Promise<void> {
   root.innerHTML = '';
   let app: App;
   try {
-    app = new App(root, project, repo, loadSettings());
+    app = new App(root, project, storage, loadSettings());
   } catch (err) {
     logger.error('起動に失敗しました', '起動', err);
     showFatal(root, '起動に失敗しました', err instanceof Error ? err.message : String(err));

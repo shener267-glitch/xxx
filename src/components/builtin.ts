@@ -1,5 +1,6 @@
 import { MathUtils, Vector3 } from 'three';
 import type { Vec3 } from '../core/types';
+import { registerPhysicsComponents } from './physics';
 import { registerComponent } from './registry';
 
 /**
@@ -15,6 +16,7 @@ let registered = false;
 export function registerBuiltinComponents(): void {
   if (registered) return;
   registered = true;
+  registerPhysicsComponents();
 
   registerComponent({
     type: 'rotator',

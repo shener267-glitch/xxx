@@ -1,3 +1,4 @@
+import { AssetService } from '../app/AssetService';
 import { PlayController } from '../app/PlayController';
 import { ProjectService } from '../app/ProjectService';
 import { Editor } from '../core/Editor';
@@ -7,7 +8,7 @@ import { saveSettings } from '../core/settings';
 import type { ProjectData } from '../core/types';
 import { EditorViewport } from '../engine/EditorViewport';
 import { EngineRenderer } from '../engine/EngineRenderer';
-import type { ProjectRepository } from '../storage/ProjectRepository';
+import type { Storage } from '../storage/ProjectRepository';
 import { BottomSheet } from './BottomSheet';
 import type { AppContext, SheetState, TabId } from './context';
 import { h } from './dom';
@@ -36,13 +37,16 @@ export class App implements AppContext {
   readonly engine: EngineRenderer;
   readonly viewport: EditorViewport;
   readonly projects: ProjectService;
+  readonly assets: AssetService;
   readonly play: PlayController;
   readonly sheet: BottomSheet;
   readonly root: HTMLElement;
 
-  constructor(mount: HTMLElement, project: ProjectData, repo: ProjectRepository, settings: EditorSettings) {
+  constructor(mount: HTMLElement, project: ProjectData, storage: Storage, settings: EditorSettings) {
     this.editor = new Editor(project, settings);
     const ed = this.editor;
+    // エンジンがテクスチャなどを読む前にアセットの取得方法を登録する
+    this.assets = new AssetService(storage.assets, ed);
 
     const viewportEl = h('div', { class: 'viewport', attrs: { 'data-testid': 'viewport' } });
     const runtimeOverlay = h('div', { class: 'runtime-overlay', attrs: { 'data-testid': 'runtime-overlay' } });
@@ -74,7 +78,7 @@ export class App implements AppContext {
         else this.showAddSheet({ x, y });
       },
     });
-    this.projects = new ProjectService(repo, ed, () => this.viewport);
+    this.projects = new ProjectService(storage.projects, ed, () => this.viewport, this.assets);
     this.play = new PlayController(ed, this.viewport, runtimeOverlay);
     this.sheet = new BottomSheet(this.root, main);
 

@@ -1,4 +1,5 @@
 import { addSceneData } from '../core/actions';
+import type { AssetService } from './AssetService';
 import type { Editor } from '../core/Editor';
 import { logger } from '../core/logger';
 import { createProject } from '../core/project';
@@ -27,6 +28,7 @@ export class ProjectService {
     readonly repo: ProjectRepository,
     private editor: Editor,
     private viewport: () => EditorViewport | null,
+    private assets: AssetService,
   ) {
     editor.events.on('dirty-changed', (dirty) => {
       if (dirty) {
@@ -128,38 +130,56 @@ export class ProjectService {
   async duplicateCurrent(name: string): Promise<void> {
     await this.save({ silent: true });
     const p = clone(this.editor.project);
+    const fromId = p.id;
     p.id = createId('p');
     p.name = name;
     p.createdAt = Date.now();
+    await this.assets.store.copyProject(fromId, p.id);
     this.editor.loadProject(p);
     await this.save({ silent: true });
   }
 
   async remove(id: string): Promise<void> {
     await this.repo.remove(id);
+    await this.assets.store.removeProject(id);
   }
 
   // ------------------------------------------------------------------
   // ファイル書き出し / 読み込み
   // ------------------------------------------------------------------
 
-  exportProject(): void {
+  /** プロジェクト (アセットを埋め込んだ JSON) の文字列を作る */
+  async exportProjectText(): Promise<string> {
     this.viewport()?.storeCameraState();
     const p = this.editor.project;
-    downloadText(`${safeFileName(p.name)}.pocket.json`, JSON.stringify(p));
+    const embeddedAssets = p.assets.length > 0 ? await this.assets.embedAll() : undefined;
+    return JSON.stringify(embeddedAssets ? { ...p, embeddedAssets } : p);
   }
 
-  /** JSON ファイルからプロジェクトを読み込み、新しいプロジェクトとして開く */
-  async importProject(): Promise<ProjectData | null> {
-    const file = await pickTextFile();
-    if (!file) return null;
-    const p = parseProjectJson(file.text);
+  async exportProject(): Promise<void> {
+    const text = await this.exportProjectText();
+    downloadText(`${safeFileName(this.editor.project.name)}.pocket.json`, text);
+  }
+
+  /** JSON 文字列からプロジェクトを読み込み、新しいプロジェクトとして開く */
+  async importProjectText(text: string): Promise<ProjectData> {
+    const p = parseProjectJson(text);
     // 既存プロジェクトを上書きしないよう新しい ID を振る
     p.id = createId('p');
+    const raw = JSON.parse(text) as { embeddedAssets?: Record<string, string> };
+    if (raw.embeddedAssets && typeof raw.embeddedAssets === 'object') {
+      await this.assets.restoreEmbedded(p.id, raw.embeddedAssets);
+    }
     if (this.editor.dirty) await this.save({ silent: true });
     this.editor.loadProject(p);
     await this.save({ silent: true });
     return p;
+  }
+
+  async importProject(): Promise<ProjectData | null> {
+    const file = await pickTextFile();
+    if (!file) return null;
+    return this.importProjectText(file.text);
   }
 
   exportScene(sceneId = this.editor.sceneData.id): void {

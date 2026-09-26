@@ -290,11 +290,12 @@ test('7. Play / Stop が機能し、停止で元に戻る', async ({ page }) => 
   await expect(page.getByTestId('tool-translate')).toBeHidden();
   expect(await evalApp(page, (app) => app.editor.mode)).toBe('play');
 
-  // 自動回転コンポーネントが動いている
+  // 自動回転コンポーネントが動いている (シェーダーの準備が終わって実行が始まってから測る)
+  await expect.poll(() => evalApp(page, (app) => app.play.runtime.time), { timeout: 15_000 }).toBeGreaterThan(0.05);
   const rot0 = await evalApp(page, (app, id) => app.play.runtime.objects.get(id).rotation.y, cube.id);
-  await page.waitForTimeout(700);
-  const rot1 = await evalApp(page, (app, id) => app.play.runtime.objects.get(id).rotation.y, cube.id);
-  expect(Math.abs(rot1 - rot0)).toBeGreaterThan(0.1);
+  await expect
+    .poll(async () => Math.abs((await evalApp(page, (app, id) => app.play.runtime.objects.get(id).rotation.y, cube.id)) - rot0), { timeout: 10_000 })
+    .toBeGreaterThan(0.1);
 
   // 三人称: 画面左側のジョイスティックでプレイヤーを動かす
   await page.getByTestId('play-mode-thirdPerson').tap();

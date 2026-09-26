@@ -1,15 +1,20 @@
-import { Color, MathUtils, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
+import { MathUtils, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type { ComponentInstance, RuntimeAPI } from '../components/registry';
 import { getComponentDef } from '../components/registry';
 import { logger } from '../core/logger';
-import type { PlayCameraMode } from '../core/settings';
+import type { PlayCameraMode, QualityLevel } from '../core/settings';
 import type { EntityData, ProjectData, SceneData, TransformData } from '../core/types';
 import { vec3Round } from '../core/transformMath';
 import type { EngineRenderer } from '../engine/EngineRenderer';
+import { sharedUniforms } from '../engine/materials';
 import { SceneBuilder } from '../engine/SceneBuilder';
+import { findSunDirection, SceneEnvironment } from '../engine/SceneEnvironment';
 import type { EntityObject } from '../engine/SceneBuilder';
+import { hasPhysics } from '../engine/colliderShapes';
 import type { CameraRig } from './cameraRigs';
+import type { ContactEvent } from './PhysicsWorld';
+import { PhysicsWorld } from './PhysicsWorld';
 import { FirstPersonRig, GameCameraRig, ThirdPersonRig } from './cameraRigs';
 import { RuntimeInput } from './RuntimeInput';
 
@@ -36,6 +41,7 @@ export interface RuntimeOptions {
   /** 入力を受け取るオーバーレイ要素 (キャンバスの上に重ねる) */
   overlay: HTMLElement;
   cameraMode: PlayCameraMode;
+  quality?: QualityLevel;
   /** メインカメラが無い場合の視点 (エディタのカメラ位置など) */
   fallbackView?: { position: Vector3; quaternion: Quaternion };
   /** 三人称で操作する対象 (未指定ならシーンの playerId) */
@@ -45,6 +51,7 @@ export interface RuntimeOptions {
 }
 
 interface ActiveComponent {
+  entityId: string;
   instance: ComponentInstance;
   label: string;
   entityName: string;
@@ -58,7 +65,11 @@ export class GameRuntime implements RuntimeAPI {
   time = 0;
   paused = false;
   cameraMode: PlayCameraMode;
-  private builder = new SceneBuilder({ editor: false, shadowMapSize: 1024 });
+  physics: PhysicsWorld | null = null;
+  /** 接触イベントの購読者 (イベントシステムなど) */
+  readonly contactListeners = new Set<(e: ContactEvent, began: boolean) => void>();
+  private builder: SceneBuilder;
+  private env: SceneEnvironment;
   private components: ActiveComponent[] = [];
   private input: RuntimeInput;
   private rig!: CameraRig;
@@ -74,8 +85,12 @@ export class GameRuntime implements RuntimeAPI {
     const scene = opts.project.scenes.find((s) => s.id === opts.sceneId) ?? opts.project.scenes[0];
     this.sceneData = scene;
     this.cameraMode = opts.cameraMode;
+    const quality = opts.quality ?? 'medium';
+    this.builder = new SceneBuilder({ editor: false, quality });
+    this.env = new SceneEnvironment(this.scene, opts.engine.renderer, quality);
     this.input = new RuntimeInput(opts.overlay);
     this.build();
+    this.env.apply(scene.environment, findSunDirection(this.scene));
     this.setCameraMode(opts.cameraMode);
     this.unsubResize = opts.engine.onResize((w, h) => this.rig?.setAspect(w / h));
   }
@@ -86,7 +101,6 @@ export class GameRuntime implements RuntimeAPI {
 
   private build(): void {
     const data = this.sceneData;
-    this.scene.background = new Color(data.environment.background);
     const visit = (ids: string[], parent: Object3D) => {
       for (const id of ids) {
         const e = data.entities[id];
@@ -120,7 +134,7 @@ export class GameRuntime implements RuntimeAPI {
         }
         try {
           const instance = def.create({ entity: e, object: obj, runtime: this }, c.props);
-          this.components.push({ instance, label: def.label, entityName: e.name, failed: false });
+          this.components.push({ entityId: e.id, instance, label: def.label, entityName: e.name, failed: false });
         } catch (err) {
           this.report(`${def.label}の初期化に失敗しました`, 'error', e, err);
         }
@@ -198,9 +212,67 @@ export class GameRuntime implements RuntimeAPI {
   // 実行
   // ------------------------------------------------------------------
 
-  start(): void {
+  /** 物理演算の準備 (物理を使うシーンのみ cannon-es を読み込む) */
+  private async initPhysics(): Promise<void> {
+    const data = this.sceneData;
+    if (!data.physics.enabled) return;
+    const targets = Object.values(data.entities).filter((e) => hasPhysics(e));
+    if (targets.length === 0) return;
+    try {
+      const physics = await PhysicsWorld.create(data.physics);
+      for (const e of targets) {
+        const obj = this.objects.get(e.id);
+        if (!obj || !this.isVisibleInHierarchy(e)) continue;
+        try {
+          physics.addEntity(e, obj);
+        } catch (err) {
+          this.report('当たり判定を作れませんでした', 'warn', e, err);
+        }
+      }
+      physics.onContactBegin = (ev) => this.dispatchContact(ev, true);
+      physics.onContactEnd = (ev) => this.dispatchContact(ev, false);
+      this.physics = physics;
+    } catch (err) {
+      this.report('物理演算を読み込めませんでした (物理なしで実行します)', 'error', undefined, err);
+    }
+  }
+
+  private isVisibleInHierarchy(e: EntityData): boolean {
+    let cur: EntityData | undefined = e;
+    while (cur) {
+      if (!cur.visible) return false;
+      cur = cur.parent ? this.sceneData.entities[cur.parent] : undefined;
+    }
+    return true;
+  }
+
+  private dispatchContact(ev: ContactEvent, began: boolean): void {
+    for (const c of this.components) {
+      if (c.failed || !c.instance.onContact) continue;
+      const other = c.entityId === ev.a ? ev.b : c.entityId === ev.b ? ev.a : null;
+      if (!other) continue;
+      try {
+        c.instance.onContact(other, began, ev.trigger);
+      } catch (err) {
+        c.failed = true;
+        this.report(`${c.label}でエラーが発生したため停止しました`, 'error', c.entityName, err);
+      }
+    }
+    for (const fn of this.contactListeners) fn(ev, began);
+  }
+
+  async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    await this.initPhysics();
+    // シェーダーを事前にコンパイルして、最初のフレームでの引っかかりを防ぐ
+    try {
+      await this.opts.engine.renderer.compileAsync(this.scene, this.rig.camera);
+    } catch {
+      // 非対応の環境では最初の描画時にコンパイルされる
+    }
+    // 読み込み中に停止された場合
+    if (!this.running) return;
     for (const c of this.components) {
       if (!c.instance.start) continue;
       try {
@@ -239,7 +311,10 @@ export class GameRuntime implements RuntimeAPI {
         this.report(`${c.label}でエラーが発生したため停止しました`, 'error', c.entityName, err);
       }
     }
+    this.physics?.step(dt);
     this.rig.update(dt, this.input);
+    sharedUniforms.uTime.value = this.time;
+    this.env.update(this.time, this.rig.camera);
   }
 
   private updateStats(now: number): void {
@@ -276,6 +351,14 @@ export class GameRuntime implements RuntimeAPI {
     return null;
   }
 
+  getObject(entityId: string): Object3D | null {
+    return this.objects.get(entityId) ?? null;
+  }
+
+  getEntity(entityId: string): EntityData | undefined {
+    return this.sceneData.entities[entityId];
+  }
+
   log(message: string): void {
     this.report(message, 'info');
   }
@@ -309,6 +392,9 @@ export class GameRuntime implements RuntimeAPI {
     }
     this.components = [];
     this.rig?.dispose?.();
+    this.physics?.dispose();
+    this.physics = null;
+    this.env.dispose();
     this.unsubResize();
     this.input.dispose();
     for (const obj of this.objects.values()) this.builder.dispose(obj);

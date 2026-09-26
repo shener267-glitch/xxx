@@ -63,3 +63,39 @@ describe('serialization', () => {
     expect(Object.keys(s.entities)).toHaveLength(Object.keys(p.scenes[0].entities).length);
   });
 });
+
+describe('Phase 2 の後方互換', () => {
+  it('Phase 1 形式のデータに新しい項目を補う', () => {
+    const p = createProject('旧データ');
+    const raw = JSON.parse(JSON.stringify(p));
+    const scene = raw.scenes[0];
+    // Phase 1 の形式に戻す
+    scene.environment = { background: '#123456' };
+    delete scene.physics;
+    for (const e of Object.values(scene.entities) as { mesh?: { material: Record<string, unknown> } }[]) {
+      if (!e.mesh) continue;
+      for (const k of ['pattern', 'texture', 'uvScale', 'uvOffset', 'uvRotation', 'envIntensity']) delete e.mesh.material[k];
+    }
+    const fixed = sanitizeProject(raw);
+    const s = fixed.scenes[0];
+    // 見た目が変わらないよう「単色の背景」になる
+    expect(s.environment.sky.type).toBe('color');
+    expect(s.environment.background).toBe('#123456');
+    expect(s.environment.fog.enabled).toBe(false);
+    expect(s.physics).toEqual({ enabled: true, gravity: [0, -9.81, 0] });
+    const mesh = Object.values(s.entities).find((e) => e.mesh)!;
+    expect(mesh.mesh!.material).toMatchObject({ pattern: 'none', texture: null, uvScale: [1, 1], uvOffset: [0, 0], uvRotation: 0, envIntensity: 1 });
+  });
+
+  it('新しいシーンはグラデーションの空', () => {
+    expect(createProject('新規').scenes[0].environment.sky.type).toBe('gradient');
+  });
+
+  it('アセットのメタ情報を検証する', () => {
+    const raw = JSON.parse(JSON.stringify(createProject('アセット')));
+    raw.assets = [{ id: 'a1', name: '画像', type: 'image', folder: '', mime: 'image/png', size: 10, createdAt: 1 }, { id: 'a1', name: '重複' }, 'x', { name: 'IDなし' }];
+    const fixed = sanitizeProject(raw);
+    expect(fixed.assets).toHaveLength(1);
+    expect(fixed.assets[0].name).toBe('画像');
+  });
+});

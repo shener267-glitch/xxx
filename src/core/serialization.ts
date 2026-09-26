@@ -1,15 +1,22 @@
-import { defaultCamera, defaultLight, defaultMaterial, defaultMesh, defaultTransform } from './catalog';
+import { defaultCamera, defaultEnvironment, defaultLight, defaultMaterial, defaultMesh, defaultPhysics, defaultTransform } from './catalog';
 import type {
+  AssetEntry,
+  AssetType,
   CameraStateData,
   ComponentData,
   EntityData,
   EntityKind,
+  EnvironmentData,
   LightType,
+  MaterialPattern,
+  MaterialPreset,
   PrimitiveShape,
   ProjectData,
   SceneData,
   SceneFile,
+  SkyType,
   Vec3,
+  WeatherType,
 } from './types';
 import { PROJECT_FORMAT, PROJECT_VERSION, SCENE_FORMAT } from './types';
 import { clone, createId, normalizeHex } from './util';
@@ -37,7 +44,16 @@ const color = (v: unknown, d: string): string => (typeof v === 'string' ? (norma
 const vec3 = (v: unknown, d: Vec3): Vec3 =>
   Array.isArray(v) && v.length === 3 ? [num(v[0], d[0]), num(v[1], d[1]), num(v[2], d[2])] : [...d];
 
+const vec2 = (v: unknown, d: [number, number]): [number, number] =>
+  Array.isArray(v) && v.length === 2 ? [num(v[0], d[0]), num(v[1], d[1])] : [d[0], d[1]];
+const oneOf = <T extends string>(v: unknown, list: readonly T[], d: T): T => (list.includes(v as T) ? (v as T) : d);
+
 const SHAPES: PrimitiveShape[] = ['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'];
+const PRESETS: MaterialPreset[] = ['standard', 'unlit', 'wood', 'metal', 'glass', 'water'];
+const PATTERNS: MaterialPattern[] = ['none', 'wood', 'checker', 'brick', 'stone', 'tiles', 'grass'];
+const SKIES: SkyType[] = ['color', 'gradient', 'physical'];
+const WEATHERS: WeatherType[] = ['none', 'rain', 'snow'];
+const ASSET_TYPES: AssetType[] = ['image', 'audio', 'model', 'font'];
 const LIGHTS: LightType[] = ['directional', 'point', 'spot', 'hemisphere', 'ambient'];
 const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light'];
 
@@ -73,7 +89,7 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
       castShadow: bool(m.castShadow, dm.castShadow),
       receiveShadow: bool(m.receiveShadow, dm.receiveShadow),
       material: {
-        preset: mat.preset === 'unlit' ? 'unlit' : 'standard',
+        preset: oneOf(mat.preset, PRESETS, 'standard'),
         color: color(mat.color, d.color),
         roughness: num(mat.roughness, d.roughness),
         metalness: num(mat.metalness, d.metalness),
@@ -81,6 +97,12 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
         emissive: color(mat.emissive, d.emissive),
         emissiveIntensity: num(mat.emissiveIntensity, d.emissiveIntensity),
         wireframe: bool(mat.wireframe, d.wireframe),
+        pattern: oneOf(mat.pattern, PATTERNS, 'none'),
+        texture: typeof mat.texture === 'string' ? mat.texture : null,
+        uvScale: vec2(mat.uvScale, d.uvScale),
+        uvOffset: vec2(mat.uvOffset, d.uvOffset),
+        uvRotation: num(mat.uvRotation, d.uvRotation),
+        envIntensity: num(mat.envIntensity, d.envIntensity),
       },
     };
   } else if (kind === 'light') {
@@ -155,6 +177,57 @@ function sanitizeCameraState(v: unknown): CameraStateData | null {
   };
 }
 
+function sanitizeEnvironment(env: Obj): EnvironmentData {
+  // 空の設定が無い古いデータ (Phase 1) は見た目を変えないよう「単色」にする
+  const d = defaultEnvironment(isObj(env.sky) ? 'gradient' : 'color');
+  const sky = isObj(env.sky) ? env.sky : {};
+  const fog = isObj(env.fog) ? env.fog : {};
+  const weather = isObj(env.weather) ? env.weather : {};
+  return {
+    background: color(env.background, d.background),
+    sky: {
+      type: oneOf(sky.type, SKIES, d.sky.type),
+      topColor: color(sky.topColor, d.sky.topColor),
+      horizonColor: color(sky.horizonColor, d.sky.horizonColor),
+      bottomColor: color(sky.bottomColor, d.sky.bottomColor),
+      turbidity: num(sky.turbidity, d.sky.turbidity),
+    },
+    fog: {
+      enabled: bool(fog.enabled, d.fog.enabled),
+      color: color(fog.color, d.fog.color),
+      near: num(fog.near, d.fog.near),
+      far: num(fog.far, d.fog.far),
+    },
+    reflections: bool(env.reflections, d.reflections),
+    exposure: num(env.exposure, d.exposure),
+    weather: {
+      type: oneOf(weather.type, WEATHERS, d.weather.type),
+      intensity: num(weather.intensity, d.weather.intensity),
+    },
+  };
+}
+
+function sanitizeAssets(raw: unknown): AssetEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AssetEntry[] = [];
+  const ids = new Set<string>();
+  for (const a of raw) {
+    if (!isObj(a) || typeof a.id !== 'string' || ids.has(a.id)) continue;
+    const type = oneOf(a.type, ASSET_TYPES, 'image');
+    ids.add(a.id);
+    out.push({
+      id: a.id,
+      name: str(a.name, 'アセット').slice(0, 120),
+      type,
+      folder: str(a.folder, ''),
+      mime: str(a.mime, ''),
+      size: num(a.size, 0),
+      createdAt: num(a.createdAt, Date.now()),
+    });
+  }
+  return out;
+}
+
 export function sanitizeScene(raw: unknown): SceneData {
   if (!isObj(raw)) throw new ProjectFormatError('シーンデータの形式が正しくありません');
   const entitiesRaw = isObj(raw.entities) ? raw.entities : {};
@@ -163,12 +236,14 @@ export function sanitizeScene(raw: unknown): SceneData {
     if (isObj(e)) entities[id] = sanitizeEntity(e, id);
   }
   const env = isObj(raw.environment) ? raw.environment : {};
+  const phys = isObj(raw.physics) ? raw.physics : {};
+  const dphys = defaultPhysics();
   const scene: SceneData = {
     id: str(raw.id, createId('s')),
     name: str(raw.name, 'シーン').slice(0, 100),
     roots: Array.isArray(raw.roots) ? raw.roots.filter((r): r is string => typeof r === 'string') : [],
     entities,
-    environment: { background: color(env.background, '#1f232b') },
+    environment: sanitizeEnvironment(env),
     editorCamera: sanitizeCameraState(raw.editorCamera),
     bookmarks: Array.isArray(raw.bookmarks)
       ? raw.bookmarks.flatMap((b) => {
@@ -178,6 +253,7 @@ export function sanitizeScene(raw: unknown): SceneData {
         })
       : [],
     playerId: typeof raw.playerId === 'string' ? raw.playerId : null,
+    physics: { enabled: bool(phys.enabled, dphys.enabled), gravity: vec3(phys.gravity, dphys.gravity) },
   };
   repairHierarchy(scene);
   if (scene.playerId && !scene.entities[scene.playerId]) scene.playerId = null;
@@ -221,7 +297,7 @@ export function sanitizeProject(input: unknown): ProjectData {
     scenes,
     activeSceneId: pickScene(raw.activeSceneId),
     startSceneId: pickScene(raw.startSceneId),
-    assets: Array.isArray(raw.assets) ? (clone(raw.assets) as ProjectData['assets']) : [],
+    assets: sanitizeAssets(raw.assets),
     prefabs: Array.isArray(raw.prefabs) ? (clone(raw.prefabs) as ProjectData['prefabs']) : [],
   };
 }

@@ -1,4 +1,4 @@
-import { createEntity } from './catalog';
+import { createEntity, defaultEnvironment, defaultPhysics } from './catalog';
 import type { EntityData, ProjectData, SceneData } from './types';
 import { PROJECT_FORMAT, PROJECT_VERSION } from './types';
 import { createId } from './util';
@@ -10,10 +10,11 @@ export function createEmptyScene(name: string, withStarterContent = true): Scene
     name,
     roots: [],
     entities: {},
-    environment: { background: '#1f232b' },
+    environment: defaultEnvironment('gradient'),
     editorCamera: { target: [0, 0.5, 0], yaw: 35, pitch: 28, distance: 13 },
     bookmarks: [],
     playerId: null,
+    physics: defaultPhysics(),
   };
   if (!withStarterContent) return scene;
 

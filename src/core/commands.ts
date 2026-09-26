@@ -196,3 +196,35 @@ export class LambdaCommand implements Command {
     this.undoFn();
   }
 }
+
+/**
+ * 1つの値 (シーン設定など) を before → after に変更するコマンド。
+ * mergeKey が同じ連続変更 (スライダーのドラッグ等) は1回にまとめる。
+ */
+export class ValueCommand<T> implements Command {
+  constructor(
+    readonly label: string,
+    private apply: (v: T) => void,
+    private before: T,
+    private after: T,
+    readonly mergeKey: string | null = null,
+  ) {}
+
+  execute(): void {
+    this.apply(clone(this.after));
+  }
+
+  undo(): void {
+    this.apply(clone(this.before));
+  }
+
+  mergeWith(next: Command): boolean {
+    if (!(next instanceof ValueCommand) || !this.mergeKey || next.mergeKey !== this.mergeKey) return false;
+    this.after = next.after as T;
+    return true;
+  }
+
+  isNoop(): boolean {
+    return deepEqual(this.before, this.after);
+  }
+}

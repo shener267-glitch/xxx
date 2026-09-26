@@ -1,5 +1,6 @@
 import type { Object3D } from 'three';
 import type { EntityData } from '../core/types';
+import type { PhysicsWorld } from '../runtime/PhysicsWorld';
 
 /**
  * ゲームロジック用コンポーネントのレジストリ。
@@ -26,7 +27,11 @@ export interface PropSchema {
 export interface RuntimeAPI {
   /** 経過時間 (秒) */
   readonly time: number;
+  /** 物理演算 (物理を使うシーンのみ) */
+  readonly physics: PhysicsWorld | null;
   findObjectByName(name: string): Object3D | null;
+  getObject(entityId: string): Object3D | null;
+  getEntity(entityId: string): EntityData | undefined;
   log(message: string): void;
 }
 
@@ -39,6 +44,8 @@ export interface ComponentContext {
 export interface ComponentInstance {
   start?(): void;
   update?(dt: number, time: number): void;
+  /** 物理的な接触 (trigger = すり抜け判定) の開始・終了 */
+  onContact?(otherId: string, began: boolean, trigger: boolean): void;
   destroy?(): void;
 }
 

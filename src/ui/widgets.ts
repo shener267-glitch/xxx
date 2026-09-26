@@ -648,7 +648,12 @@ export function fieldRow(label: string, control: HTMLElement | HTMLElement[], op
 }
 
 /** 折りたたみ可能なセクション */
-export function section(title: string, iconName: string, body: HTMLElement[], opts: { collapsed?: boolean; actions?: HTMLElement[]; testId?: string } = {}): HTMLElement {
+export function section(
+  title: string,
+  iconName: string,
+  body: HTMLElement[],
+  opts: { collapsed?: boolean; actions?: HTMLElement[]; testId?: string; onToggle?: (collapsed: boolean) => void } = {},
+): HTMLElement {
   const content = h('div', { class: 'section-body' }, body);
   const header = h(
     'div',
@@ -661,6 +666,7 @@ export function section(title: string, iconName: string, body: HTMLElement[], op
         click: () => {
           const collapsed = el.classList.toggle('collapsed');
           header.firstElementChild!.setAttribute('aria-expanded', String(!collapsed));
+          opts.onToggle?.(collapsed);
         },
       },
     }),

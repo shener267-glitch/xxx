@@ -95,6 +95,7 @@ export class SettingsPanel {
         fieldRow('影', toggle('shadows', '影')),
         fieldRow('画質', quality.el, { hint: '重いときは「低」に' }),
         fieldRow('ギズモの大きさ', number('gizmoSize', 'ギズモの大きさ', 0.1, 0.5, 3)),
+        fieldRow('エフェクトのプレビュー', toggle('previewEffects', 'エフェクトのプレビュー', 'set-preview-effects'), { hint: '編集中も水・天候を動かす (電池を使います)' }),
       ]),
       section('操作', 'hand', [
         fieldRow('1本指でカメラ回転', toggle('oneFingerOrbit', '1本指でカメラ回転'), { hint: 'OFF にすると誤操作が減ります' }),

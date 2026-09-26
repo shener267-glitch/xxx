@@ -70,13 +70,14 @@ export class PlayController {
         sceneId: ed.sceneData.id,
         overlay: this.overlay,
         cameraMode: ed.settings.playCamera,
+        quality: ed.settings.quality,
         fallbackView: { position: fallbackView.position as Vector3, quaternion: fallbackView.quaternion },
         playerId,
         onStats: (s) => this.listeners.forEach((l) => l.onStats?.(s)),
         onMessage: (m, level) => this.listeners.forEach((l) => l.onMessage?.(m, level)),
       });
       this.runtime = runtime;
-      runtime.start();
+      runtime.start().catch((err) => logger.error('Play の開始中にエラーが発生しました', 'Play', err));
       this.listeners.forEach((l) => l.onStart?.(runtime));
       this.listeners.forEach((l) => l.onCameraMode?.(runtime.cameraMode));
       return true;

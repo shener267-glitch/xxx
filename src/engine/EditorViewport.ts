@@ -1,8 +1,29 @@
-import { Box3, Box3Helper, Color, Mesh, Raycaster, Scene, Vector2, Vector3 } from 'three';
+import {
+  Box3,
+  Box3Helper,
+  BoxGeometry,
+  CapsuleGeometry,
+  Color,
+  CylinderGeometry,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  Quaternion,
+  Raycaster,
+  Scene,
+  SphereGeometry,
+  Vector2,
+  Vector3,
+} from 'three';
+import type { BufferGeometry } from 'three';
 import type { LineBasicMaterial, Object3D } from 'three';
 import type { Editor } from '../core/Editor';
 import type { Vec3 } from '../core/types';
-import { snapTo } from '../core/util';
+import { debounce, snapTo } from '../core/util';
+import { sharedUniforms } from './materials';
+import { computeColliderShape, hasPhysics, readCollider } from './colliderShapes';
+import { findSunDirection, SceneEnvironment } from './SceneEnvironment';
+import { onTextureLoaded } from './textures';
 import { EditorCamera } from './EditorCamera';
 import type { EngineRenderer } from './EngineRenderer';
 import { GizmoController } from './GizmoController';
@@ -14,6 +35,7 @@ import type { ViewportInputHandlers } from './ViewportInput';
 import { ViewportInput } from './ViewportInput';
 
 const ACTIVE_COLOR = new Color('#ffb020');
+const colliderMat = new MeshBasicMaterial({ color: 0x3fd584, wireframe: true, transparent: true, opacity: 0.7, depthTest: false });
 const SELECTED_COLOR = new Color('#ffd78a');
 
 /**
@@ -27,8 +49,11 @@ export class EditorViewport {
   readonly gizmo: GizmoController;
   readonly input: ViewportInput;
   readonly grid = new Grid();
+  readonly env: SceneEnvironment;
   private builder: SceneBuilder;
   private selectionBoxes: Box3Helper[] = [];
+  /** 選択中オブジェクトの当たり判定 (緑の枠) */
+  private colliderGroup = new Group();
   private selectionDirty = true;
   private needsRender = true;
   private running = true;
@@ -43,11 +68,16 @@ export class EditorViewport {
     private element: HTMLElement,
     handlers: ViewportInputHandlers,
   ) {
-    this.builder = new SceneBuilder({ editor: true, shadowMapSize: 1024 });
+    this.builder = new SceneBuilder({ editor: true, quality: editor.settings.quality });
+    this.env = new SceneEnvironment(this.scene, engine.renderer, editor.settings.quality);
+    this.env.weatherVisible = editor.settings.previewEffects;
     this.camera = new EditorCamera(engine.width / engine.height);
     this.camera.onChange = () => this.requestRender();
 
     this.scene.add(this.grid);
+    this.colliderGroup.name = '__colliders';
+    this.colliderGroup.renderOrder = 998;
+    this.scene.add(this.colliderGroup);
     this.bridge = new SceneBridge(editor, this.builder);
     this.bridge.onChange = () => {
       this.selectionDirty = true;
@@ -84,6 +114,13 @@ export class EditorViewport {
       ev.on('environment-changed', () => this.applyEnvironment()),
       ev.on('settings-changed', () => this.applySettings()),
       ev.on('focus-request', (ids) => this.focus(ids)),
+      // 太陽光の向きが変わったら空と映り込みを更新する (ドラッグ中は間引く)
+      ev.on('entity-changed', (c) => {
+        if (editor.scene.get(c.id)?.light?.type === 'directional') this.scheduleEnvironment();
+      }),
+      ev.on('entity-added', () => this.scheduleEnvironment()),
+      ev.on('entity-removed', () => this.scheduleEnvironment()),
+      onTextureLoaded(() => this.requestRender()),
     );
     this.camera.setAspect(engine.width / engine.height);
     this.onSceneLoaded();
@@ -109,6 +146,12 @@ export class EditorViewport {
     this.raf = requestAnimationFrame(this.loop);
     if (!this.running) return;
     if (this.camera.tick(now)) this.needsRender = true;
+    // エフェクトのプレビューが有効なときだけ毎フレーム描画する (水の波・天候)
+    if (this.editor.settings.previewEffects) {
+      sharedUniforms.uTime.value = now / 1000;
+      this.env.update(now / 1000, this.camera.camera);
+      this.needsRender = true;
+    }
     if (!this.needsRender) return;
     this.renderNow();
   };
@@ -133,6 +176,8 @@ export class EditorViewport {
     this.running = true;
     this.input.enabled = true;
     this.camera.setAspect(this.engine.width / this.engine.height);
+    // Play 中に変わったレンダラーの設定 (露出など) を戻す
+    this.applyEnvironment();
     this.requestRender();
   }
 
@@ -148,8 +193,10 @@ export class EditorViewport {
     this.requestRender();
   }
 
+  private scheduleEnvironment = debounce(() => this.applyEnvironment(), 150);
+
   private applyEnvironment(): void {
-    this.scene.background = new Color(this.editor.sceneData.environment.background);
+    this.env.apply(this.editor.sceneData.environment, findSunDirection(this.bridge.root));
     this.requestRender();
   }
 
@@ -158,6 +205,12 @@ export class EditorViewport {
     this.grid.visible = s.showGrid;
     this.engine.setShadows(s.shadows);
     this.engine.setQuality(s.quality);
+    if (this.builder.quality !== s.quality) {
+      this.builder.setQuality(s.quality);
+      this.bridge.refreshAll();
+    }
+    this.env.setQuality(s.quality);
+    this.env.setWeatherVisible(s.previewEffects);
     this.gizmo.refresh();
     this.requestRender();
   }
@@ -173,6 +226,7 @@ export class EditorViewport {
 
   private updateSelectionBoxes(): void {
     this.selectionDirty = false;
+    this.updateColliderHelpers();
     const ids = this.editor.selection.ids;
     while (this.selectionBoxes.length > ids.length) {
       const h = this.selectionBoxes.pop()!;
@@ -202,6 +256,46 @@ export class EditorViewport {
       if (!box.isEmpty()) box.expandByScalar(0.02);
       (helper.material as LineBasicMaterial).color.copy(id === active ? ACTIVE_COLOR : SELECTED_COLOR);
     });
+  }
+
+  /** 選択中で物理コンポーネントを持つオブジェクトの当たり判定を表示する */
+  private updateColliderHelpers(): void {
+    for (const c of [...this.colliderGroup.children]) {
+      c.removeFromParent();
+      (c as Mesh).geometry.dispose();
+    }
+    const model = this.editor.scene;
+    const pos = new Vector3();
+    const quat = new Quaternion();
+    const scale = new Vector3();
+    for (const id of this.editor.selection.ids) {
+      const e = model.get(id);
+      const obj = this.bridge.get(id);
+      if (!e || !obj || !hasPhysics(e)) continue;
+      obj.updateWorldMatrix(true, false);
+      obj.matrixWorld.decompose(pos, quat, scale);
+      const shape = computeColliderShape(e, [scale.x, scale.y, scale.z], readCollider(e.components.find((c) => c.type === 'collider')));
+      let geo: BufferGeometry;
+      switch (shape.kind) {
+        case 'sphere':
+          geo = new SphereGeometry(shape.radius, 16, 10);
+          break;
+        case 'cylinder':
+          geo = new CylinderGeometry(shape.radiusTop, shape.radiusBottom, shape.height, 16);
+          break;
+        case 'capsule':
+          geo = new CapsuleGeometry(shape.radius, shape.height, 4, 12);
+          break;
+        default:
+          geo = new BoxGeometry(shape.half[0] * 2, shape.half[1] * 2, shape.half[2] * 2);
+      }
+      const m = new Mesh(geo, colliderMat);
+      m.position.copy(pos).add(new Vector3(...shape.offset).applyQuaternion(quat));
+      m.quaternion.copy(quat);
+      m.renderOrder = 998;
+      m.userData.noPick = true;
+      this.colliderGroup.add(m);
+    }
   }
 
   /** 表示用メッシュと選択用の当たり判定からバウンディングボックスを計算 */
@@ -336,8 +430,8 @@ export class EditorViewport {
 
   captureThumbnail(): string | null {
     const hidden: Object3D[] = [];
-    // サムネイルにはギズモや選択枠を写さない
-    for (const o of [this.gizmo.controls.getHelper(), ...this.selectionBoxes, this.grid]) {
+    // サムネイルにはギズモや選択枠を写さない (環境は描画前に最新にする)
+    for (const o of [this.gizmo.controls.getHelper(), ...this.selectionBoxes, this.grid, this.colliderGroup]) {
       if (o.visible) {
         o.visible = false;
         hidden.push(o);
@@ -351,6 +445,8 @@ export class EditorViewport {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.scheduleEnvironment.cancel();
+    this.env.dispose();
     this.unsubs.forEach((u) => u());
     this.input.dispose();
     this.gizmo.dispose();

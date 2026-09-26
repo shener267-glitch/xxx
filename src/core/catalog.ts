@@ -2,10 +2,14 @@ import type {
   CameraData,
   EntityData,
   EntityKind,
+  EnvironmentData,
   LightData,
   LightType,
   MaterialData,
+  MaterialPattern,
+  MaterialPreset,
   MeshData,
+  PhysicsSettings,
   PrimitiveShape,
   TransformData,
 } from './types';
@@ -23,6 +27,7 @@ export type CreateKind =
   | 'light-spot'
   | 'light-hemisphere'
   | 'light-ambient'
+  | 'water'
   | 'empty';
 
 export interface CatalogItem {
@@ -45,6 +50,7 @@ export const CATALOG: CatalogItem[] = [
   { kind: 'cylinder', label: '円柱', english: 'Cylinder', defaultName: '円柱', icon: 'cylinder', category: 'shape', description: '柱・缶など' },
   { kind: 'cone', label: '円錐', english: 'Cone', defaultName: '円錐', icon: 'cone', category: 'shape', description: 'コーン・屋根など' },
   { kind: 'capsule', label: 'カプセル', english: 'Capsule', defaultName: 'カプセル', icon: 'capsule', category: 'shape', description: 'キャラクターの仮モデルに' },
+  { kind: 'water', label: '水面', english: 'Water', defaultName: '水面', icon: 'wave', category: 'shape', description: '波打つ水。池や海に' },
   { kind: 'camera', label: 'カメラ', english: 'Camera', defaultName: 'カメラ', icon: 'camera', category: 'camera', description: 'Play 時の視点' },
   { kind: 'light-directional', label: '太陽光', english: 'Directional Light', defaultName: '太陽光', icon: 'sun', category: 'light', description: '一方向から照らす光。影を作れる' },
   { kind: 'light-point', label: 'ポイントライト', english: 'Point Light', defaultName: 'ポイントライト', icon: 'bulb', category: 'light', description: '電球のように周囲を照らす' },
@@ -135,7 +141,55 @@ export function defaultMaterial(color = '#d9dde3'): MaterialData {
     emissive: '#000000',
     emissiveIntensity: 1,
     wireframe: false,
+    pattern: 'none',
+    texture: null,
+    uvScale: [1, 1],
+    uvOffset: [0, 0],
+    uvRotation: 0,
+    envIntensity: 1,
   };
+}
+
+export interface MaterialPresetInfo {
+  preset: MaterialPreset;
+  label: string;
+  description: string;
+  /** 選んだときに設定する推奨値 */
+  values: Partial<MaterialData>;
+}
+
+export const MATERIAL_PRESETS: MaterialPresetInfo[] = [
+  { preset: 'standard', label: '標準', description: '一般的な質感', values: { roughness: 0.6, metalness: 0, opacity: 1, pattern: 'none' } },
+  { preset: 'wood', label: '木材', description: '木目のある質感', values: { color: '#b07a45', roughness: 0.75, metalness: 0, opacity: 1, pattern: 'wood' } },
+  { preset: 'metal', label: '金属', description: '周りを映すツヤのある金属', values: { color: '#c9ced6', roughness: 0.22, metalness: 1, opacity: 1, pattern: 'none', envIntensity: 1.2 } },
+  { preset: 'glass', label: 'ガラス', description: '透き通ったガラス', values: { color: '#d8ecff', roughness: 0.04, metalness: 0, opacity: 0.3, pattern: 'none', envIntensity: 1.5 } },
+  { preset: 'water', label: '水', description: '波打つ水面 (平面向け)', values: { color: '#2a7bb8', roughness: 0.08, metalness: 0, opacity: 0.82, pattern: 'none' } },
+  { preset: 'unlit', label: 'アンリット', description: '光の影響を受けない (UI・発光表現向け)', values: { opacity: 1 } },
+];
+
+export const PATTERN_LABELS: Record<MaterialPattern, string> = {
+  none: 'なし',
+  wood: '木目',
+  checker: '市松模様',
+  brick: 'レンガ',
+  stone: '石',
+  tiles: 'タイル',
+  grass: '草地',
+};
+
+export function defaultEnvironment(sky: 'color' | 'gradient' = 'gradient'): EnvironmentData {
+  return {
+    background: '#1f232b',
+    sky: { type: sky, topColor: '#3d7fd6', horizonColor: '#c9dff2', bottomColor: '#5b6270', turbidity: 6 },
+    fog: { enabled: false, color: '#c9dff2', near: 20, far: 120 },
+    reflections: true,
+    exposure: 1,
+    weather: { type: 'none', intensity: 0.6 },
+  };
+}
+
+export function defaultPhysics(): PhysicsSettings {
+  return { enabled: true, gravity: [0, -9.81, 0] };
 }
 
 export function defaultMesh(shape: PrimitiveShape, color?: string): MeshData {
@@ -221,6 +275,14 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       base.mesh = defaultMesh(kind, SHAPE_COLORS[kind]);
       base.transform.position[1] = restingHeight(kind);
       if (kind === 'plane') base.transform.scale = [4, 1, 4];
+      return base;
+    case 'water':
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('plane', '#2a7bb8');
+      Object.assign(base.mesh.material, MATERIAL_PRESETS.find((p) => p.preset === 'water')!.values, { preset: 'water' });
+      base.mesh.castShadow = false;
+      base.transform.position[1] = 0.1;
+      base.transform.scale = [20, 1, 20];
       return base;
     case 'camera':
       base.kind = 'camera';

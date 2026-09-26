@@ -7,9 +7,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
-  DoubleSide,
   Float32BufferAttribute,
-  FrontSide,
   Group,
   HemisphereLight,
   LineBasicMaterial,
@@ -17,7 +15,6 @@ import {
   MathUtils,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
@@ -26,8 +23,10 @@ import {
   SpotLight,
 } from 'three';
 import type { Light, Material } from 'three';
+import type { QualityLevel } from '../core/settings';
 import { safeScale } from '../core/transformMath';
-import type { EntityData, MaterialData, PrimitiveShape } from '../core/types';
+import type { EntityData, PrimitiveShape } from '../core/types';
+import { createMaterial, disposeMaterial, materialSignature, updateMaterial } from './materials';
 
 /**
  * EntityData から Three.js のオブジェクトを生成・更新する。
@@ -68,6 +67,16 @@ export function findEntityObject(o: Object3D | null): EntityObject | null {
 // ------------------------------------------------------------------
 
 const geometryCache = new Map<PrimitiveShape, BufferGeometry>();
+let waterGeometry: BufferGeometry | null = null;
+
+/** 波を表現するための細かく分割した平面 */
+export function getWaterGeometry(): BufferGeometry {
+  if (!waterGeometry) {
+    waterGeometry = new PlaneGeometry(1, 1, 64, 64);
+    waterGeometry.rotateX(-Math.PI / 2);
+  }
+  return waterGeometry;
+}
 
 export function getGeometry(shape: PrimitiveShape): BufferGeometry {
   let g = geometryCache.get(shape);
@@ -213,39 +222,6 @@ function createEmptyProxy(): { proxy: Object3D; picker: Mesh } {
 }
 
 // ------------------------------------------------------------------
-// マテリアル
-// ------------------------------------------------------------------
-
-function createMaterial(m: MaterialData, shape: PrimitiveShape): Material {
-  const side = shape === 'plane' ? DoubleSide : FrontSide;
-  if (m.preset === 'unlit') {
-    return new MeshBasicMaterial({ side });
-  }
-  return new MeshStandardMaterial({ side });
-}
-
-function updateMaterial(mat: Material, m: MaterialData): void {
-  const transparent = m.opacity < 0.999;
-  if (mat instanceof MeshStandardMaterial) {
-    mat.color.set(m.color);
-    mat.roughness = m.roughness;
-    mat.metalness = m.metalness;
-    mat.emissive.set(m.emissive);
-    mat.emissiveIntensity = m.emissiveIntensity;
-    mat.wireframe = m.wireframe;
-  } else if (mat instanceof MeshBasicMaterial) {
-    mat.color.set(m.color);
-    mat.wireframe = m.wireframe;
-  }
-  if (mat.transparent !== transparent) {
-    mat.transparent = transparent;
-    mat.needsUpdate = true;
-  }
-  mat.opacity = m.opacity;
-  mat.depthWrite = !transparent;
-}
-
-// ------------------------------------------------------------------
 // ライト
 // ------------------------------------------------------------------
 
@@ -317,14 +293,24 @@ function updateLight(obj: Object3D, e: EntityData): void {
 export interface SceneBuilderOptions {
   /** エディタ用のプロキシ表示を作るか */
   editor: boolean;
-  shadowMapSize?: number;
+  quality?: QualityLevel;
 }
+
+const SHADOW_MAP_SIZE: Record<QualityLevel, number> = { low: 512, medium: 1024, high: 2048 };
 
 export class SceneBuilder {
   private shadowMapSize: number;
+  quality: QualityLevel;
 
   constructor(private opts: SceneBuilderOptions) {
-    this.shadowMapSize = opts.shadowMapSize ?? 1024;
+    this.quality = opts.quality ?? 'medium';
+    this.shadowMapSize = SHADOW_MAP_SIZE[this.quality];
+  }
+
+  /** 画質を変更する (以後に作り直すマテリアル・影に反映) */
+  setQuality(q: QualityLevel): void {
+    this.quality = q;
+    this.shadowMapSize = SHADOW_MAP_SIZE[q];
   }
 
   create(e: EntityData): EntityObject {
@@ -338,9 +324,9 @@ export class SceneBuilder {
   private signature(e: EntityData): string {
     switch (e.kind) {
       case 'mesh':
-        return `mesh:${e.mesh?.shape}:${e.mesh?.material.preset}`;
+        return `mesh:${e.mesh?.shape}:${e.mesh ? materialSignature(e.mesh.material, e.mesh.shape, { quality: this.quality }) : ''}`;
       case 'light':
-        return `light:${e.light?.type}`;
+        return `light:${e.light?.type}:${e.light?.type === 'directional' || e.light?.type === 'spot' ? this.shadowMapSize : ''}`;
       case 'camera':
         return 'camera';
       default:
@@ -412,7 +398,8 @@ export class SceneBuilder {
     ud.content = null;
 
     if (e.kind === 'mesh' && e.mesh) {
-      const mesh = new Mesh(getGeometry(e.mesh.shape), createMaterial(e.mesh.material, e.mesh.shape));
+      const geometry = e.mesh.material.preset === 'water' && e.mesh.shape === 'plane' ? getWaterGeometry() : getGeometry(e.mesh.shape);
+      const mesh = new Mesh(geometry, createMaterial(e.mesh.material, e.mesh.shape, { quality: this.quality }));
       mesh.userData.ownMaterial = true;
       ud.content = mesh;
     } else if (e.kind === 'light' && e.light) {
@@ -473,8 +460,8 @@ export function disposeObject(root: Object3D): void {
     if (o instanceof Mesh || o instanceof LineSegments) {
       if (o.userData.ownGeometry) o.geometry.dispose();
       if (o.userData.ownMaterial || o instanceof LineSegments) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) if (m !== proxyLineMat && m !== pickerMat && m !== proxyGrayMat) m.dispose();
+        const mats = (Array.isArray(o.material) ? o.material : [o.material]) as Material[];
+        for (const m of mats) if (m !== proxyLineMat && m !== pickerMat && m !== proxyGrayMat) disposeMaterial(m);
       }
     }
   });

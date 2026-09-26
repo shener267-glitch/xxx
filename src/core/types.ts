@@ -19,10 +19,13 @@ export interface TransformData {
 export type PrimitiveShape = 'cube' | 'sphere' | 'plane' | 'cylinder' | 'cone' | 'capsule';
 
 /**
- * マテリアルの種類。Phase 1 は standard / unlit。
- * Phase 2 で wood / metal / glass などのプリセットを追加する想定。
+ * マテリアルの種類。見た目の作り方 (シェーダー) が変わる。
+ * 選ぶと色・粗さなどの推奨値が設定され、その後自由に調整できる。
  */
-export type MaterialPreset = 'standard' | 'unlit';
+export type MaterialPreset = 'standard' | 'unlit' | 'wood' | 'metal' | 'glass' | 'water';
+
+/** 手続き的に生成する模様テクスチャ (画像ファイル不要) */
+export type MaterialPattern = 'none' | 'wood' | 'checker' | 'brick' | 'stone' | 'tiles' | 'grass';
 
 export interface MaterialData {
   preset: MaterialPreset;
@@ -34,6 +37,18 @@ export interface MaterialData {
   emissive: string;
   emissiveIntensity: number;
   wireframe: boolean;
+  /** 模様 (画像テクスチャが無い場合に使用) */
+  pattern: MaterialPattern;
+  /** 画像テクスチャのアセット ID */
+  texture: string | null;
+  /** テクスチャの繰り返し回数 (U, V) */
+  uvScale: [number, number];
+  /** テクスチャのずれ (U, V) */
+  uvOffset: [number, number];
+  /** テクスチャの回転 (度) */
+  uvRotation: number;
+  /** 周囲の映り込みの強さ */
+  envIntensity: number;
 }
 
 export interface MeshData {
@@ -116,10 +131,49 @@ export interface CameraBookmark {
   state: CameraStateData;
 }
 
+export type SkyType = 'color' | 'gradient' | 'physical';
+
+export interface SkyData {
+  type: SkyType;
+  topColor: string;
+  horizonColor: string;
+  bottomColor: string;
+  /** 物理的な空の大気の濁り (2〜20) */
+  turbidity: number;
+}
+
+export interface FogData {
+  enabled: boolean;
+  color: string;
+  /** 霧が始まる距離 */
+  near: number;
+  /** 完全に霧になる距離 */
+  far: number;
+}
+
+export type WeatherType = 'none' | 'rain' | 'snow';
+
+export interface WeatherData {
+  type: WeatherType;
+  /** 強さ 0〜1 */
+  intensity: number;
+}
+
 export interface EnvironmentData {
-  /** 背景色 '#rrggbb' */
+  /** 背景色 '#rrggbb' (空の種類が「単色」のとき) */
   background: string;
-  // Phase 2: sky / fog / weather / postprocess
+  sky: SkyData;
+  fog: FogData;
+  /** 空を映り込み (反射) に使う */
+  reflections: boolean;
+  /** 全体の明るさ (露出) */
+  exposure: number;
+  weather: WeatherData;
+}
+
+export interface PhysicsSettings {
+  enabled: boolean;
+  gravity: Vec3;
 }
 
 export interface SceneData {
@@ -134,14 +188,24 @@ export interface SceneData {
   bookmarks: CameraBookmark[];
   /** 三人称カメラで追従・操作するエンティティ */
   playerId: string | null;
+  physics: PhysicsSettings;
 }
 
-/** Phase 5 でアセット管理を実装する際の予約領域 */
+export type AssetType = 'image' | 'audio' | 'model' | 'font';
+
+/**
+ * アセットのメタ情報。ファイル本体 (Blob) は IndexedDB の assets ストアに保存し、
+ * 書き出し時はプロジェクトファイルに埋め込む。
+ */
 export interface AssetEntry {
   id: string;
   name: string;
-  type: 'model' | 'image' | 'texture' | 'audio' | 'font' | 'animation';
+  type: AssetType;
+  /** フォルダのパス ('' はルート。例: 'キャラクター/敵') */
   folder: string;
+  mime: string;
+  size: number;
+  createdAt: number;
 }
 
 /** Phase 5 で Prefab を実装する際の予約領域 */

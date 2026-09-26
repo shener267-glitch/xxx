@@ -35,7 +35,7 @@ const sortMeta = (list: ProjectMeta[]) => list.sort((a, b) => b.updatedAt - a.up
 // ------------------------------------------------------------------
 
 const DB_NAME = 'pocket-engine';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function promisify<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -55,12 +55,16 @@ function txDone(tx: IDBTransaction): Promise<void> {
 export function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (e) => {
       const db = req.result;
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'id' });
-      // Phase 5: 画像・音声・3Dモデルなどのバイナリアセット用
-      if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'id' });
+      // v1 の assets ストア (未使用) は形式が違うので作り直す。
+      // キーは「プロジェクト ID:アセット ID」とし、プロジェクト単位でまとめて削除できるようにする
+      if (e.oldVersion < 2 && db.objectStoreNames.contains('assets')) db.deleteObjectStore('assets');
+      if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'key' });
+      // 自動バックアップ (Phase 9)
+      if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('IndexedDB を開けませんでした'));
@@ -181,11 +185,17 @@ export class MemoryRepository implements ProjectRepository {
   }
 }
 
-export async function createRepository(): Promise<ProjectRepository> {
+export interface Storage {
+  projects: ProjectRepository;
+  assets: AssetStore;
+  db: IDBDatabase | null;
+}
+
+export async function createStorage(): Promise<Storage> {
   try {
     if (typeof indexedDB !== 'undefined') {
       const db = await openDatabase();
-      return new IndexedDbRepository(db);
+      return { projects: new IndexedDbRepository(db), assets: new IndexedDbAssetStore(db), db };
     }
   } catch (err) {
     console.warn('[PocketEngine] IndexedDB が使えないため localStorage を使用します', err);
@@ -194,9 +204,93 @@ export async function createRepository(): Promise<ProjectRepository> {
     const k = 'pocket-engine:probe';
     localStorage.setItem(k, '1');
     localStorage.removeItem(k);
-    return new LocalStorageRepository();
+    // localStorage は容量が小さく Blob を保存できないため、アセットはメモリのみ
+    return { projects: new LocalStorageRepository(), assets: new MemoryAssetStore(), db: null };
   } catch {
-    return new MemoryRepository();
+    return { projects: new MemoryRepository(), assets: new MemoryAssetStore(), db: null };
+  }
+}
+
+// ------------------------------------------------------------------
+// アセット (画像・音声・3Dモデルなどのファイル本体)
+// ------------------------------------------------------------------
+
+export interface AssetStore {
+  readonly persistent: boolean;
+  put(projectId: string, assetId: string, blob: Blob): Promise<void>;
+  get(projectId: string, assetId: string): Promise<Blob | null>;
+  remove(projectId: string, assetId: string): Promise<void>;
+  /** プロジェクトのアセットをすべて削除 */
+  removeProject(projectId: string): Promise<void>;
+  /** プロジェクトのアセットを別のプロジェクトへ複製 */
+  copyProject(fromId: string, toId: string): Promise<void>;
+}
+
+const assetKey = (projectId: string, assetId: string) => `${projectId}:${assetId}`;
+
+export class IndexedDbAssetStore implements AssetStore {
+  readonly persistent = true;
+  constructor(private db: IDBDatabase) {}
+
+  async put(projectId: string, assetId: string, blob: Blob): Promise<void> {
+    const tx = this.db.transaction('assets', 'readwrite');
+    tx.objectStore('assets').put({ key: assetKey(projectId, assetId), projectId, assetId, blob });
+    await txDone(tx);
+  }
+
+  async get(projectId: string, assetId: string): Promise<Blob | null> {
+    const tx = this.db.transaction('assets', 'readonly');
+    const rec = (await promisify(tx.objectStore('assets').get(assetKey(projectId, assetId)))) as { blob: Blob } | undefined;
+    return rec?.blob ?? null;
+  }
+
+  async remove(projectId: string, assetId: string): Promise<void> {
+    const tx = this.db.transaction('assets', 'readwrite');
+    tx.objectStore('assets').delete(assetKey(projectId, assetId));
+    await txDone(tx);
+  }
+
+  private range(projectId: string): IDBKeyRange {
+    return IDBKeyRange.bound(`${projectId}:`, `${projectId}:\uffff`);
+  }
+
+  async removeProject(projectId: string): Promise<void> {
+    const tx = this.db.transaction('assets', 'readwrite');
+    tx.objectStore('assets').delete(this.range(projectId));
+    await txDone(tx);
+  }
+
+  async copyProject(fromId: string, toId: string): Promise<void> {
+    const read = this.db.transaction('assets', 'readonly');
+    const recs = (await promisify(read.objectStore('assets').getAll(this.range(fromId)))) as { assetId: string; blob: Blob }[];
+    if (recs.length === 0) return;
+    const tx = this.db.transaction('assets', 'readwrite');
+    const store = tx.objectStore('assets');
+    for (const r of recs) store.put({ key: assetKey(toId, r.assetId), projectId: toId, assetId: r.assetId, blob: r.blob });
+    await txDone(tx);
+  }
+}
+
+export class MemoryAssetStore implements AssetStore {
+  readonly persistent = false;
+  private blobs = new Map<string, Blob>();
+
+  async put(projectId: string, assetId: string, blob: Blob): Promise<void> {
+    this.blobs.set(assetKey(projectId, assetId), blob);
+  }
+  async get(projectId: string, assetId: string): Promise<Blob | null> {
+    return this.blobs.get(assetKey(projectId, assetId)) ?? null;
+  }
+  async remove(projectId: string, assetId: string): Promise<void> {
+    this.blobs.delete(assetKey(projectId, assetId));
+  }
+  async removeProject(projectId: string): Promise<void> {
+    for (const k of [...this.blobs.keys()]) if (k.startsWith(`${projectId}:`)) this.blobs.delete(k);
+  }
+  async copyProject(fromId: string, toId: string): Promise<void> {
+    for (const [k, v] of [...this.blobs]) {
+      if (k.startsWith(`${fromId}:`)) this.blobs.set(`${toId}:${k.slice(fromId.length + 1)}`, v);
+    }
   }
 }
 
