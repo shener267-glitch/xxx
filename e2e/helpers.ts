@@ -227,3 +227,66 @@ export async function emptyPoint(page: Page): Promise<Pt> {
   if (!p) throw new Error('empty point not found');
   return p as Pt;
 }
+
+// ------------------------------------------------------------------
+// ゲーム (Phase 3 以降)
+// ------------------------------------------------------------------
+
+/** テンプレートから新しいプロジェクトを作る (UI 操作) */
+export async function createFromTemplate(page: Page, id: 'coins' | 'adventure'): Promise<void> {
+  await page.getByTestId('main-menu').tap();
+  await page.getByTestId('menu-projects').tap();
+  await page.getByTestId('project-template').tap();
+  await page.getByTestId(`template-${id}`).tap();
+  await page.getByTestId('prompt-ok').tap();
+  await expect.poll(() => evalApp(page, (app) => Object.values(app.editor.sceneData.entities).some((e: any) => e.components.some((c: any) => c.type === 'player')))).toBe(true);
+  await expect(page.locator('.modal-backdrop')).toHaveCount(0);
+}
+
+export async function startPlay(page: Page): Promise<void> {
+  await page.getByTestId('play').tap();
+  await expect(page.getByTestId('play-hud')).toBeVisible();
+  // 物理 (cannon-es) の読み込みと最初のフレームを待つ
+  await expect.poll(() => evalApp(page, (app) => !!app.play.runtime?.physics && app.play.runtime.time > 0.05), { timeout: 20_000 }).toBe(true);
+}
+
+/** Play 中のプレイヤーを名前で指定したオブジェクトの近くへ移動する */
+export async function teleportNear(page: Page, name: string, offset: [number, number, number] = [0, 0.3, 0]): Promise<void> {
+  await evalApp(
+    page,
+    (app, arg) => {
+      const r = app.play.runtime;
+      const target = (Object.values(r.sceneData.entities) as any[]).find((e) => e.name === arg.name);
+      const p = r.worldPosition(target.id);
+      r.physics.teleport(r.playerId, [p.x + arg.offset[0], p.y + arg.offset[1], p.z + arg.offset[2]]);
+    },
+    { name, offset },
+  );
+}
+
+export async function openSection(page: Page, testId: string): Promise<void> {
+  const sec = page.getByTestId(testId);
+  if (await sec.evaluate((el) => el.classList.contains('collapsed'))) await sec.locator('.section-toggle').tap();
+}
+
+/** ボトムシートを閉じる (アニメーション中に押すと見出しに当たるので、位置が落ち着いてから) */
+export async function closeSheet(page: Page): Promise<void> {
+  await stableBox(page, 'sheet-close');
+  await page.getByTestId('sheet-close').tap();
+  await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
+}
+
+export const gameState = (page: Page) =>
+  evalApp(page, (app) => {
+    const r = app.play.runtime;
+    return {
+      score: r.state.score,
+      money: r.state.money,
+      hp: r.state.hp,
+      lives: r.state.lives,
+      status: r.state.status,
+      inventory: Object.fromEntries(r.state.inventory),
+      events: r.eventLog.map((e: { event: string }) => e.event),
+    };
+  });
+

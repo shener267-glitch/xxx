@@ -7,6 +7,7 @@ import type { ProjectData, TransformData } from '../core/types';
 import { clone, deepEqual } from '../core/util';
 import type { EditorViewport } from '../engine/EditorViewport';
 import type { RuntimeRequest, RuntimeStats } from '../runtime/GameRuntime';
+import type { SaveData } from '../runtime/GameState';
 import { GameRuntime } from '../runtime/GameRuntime';
 
 export interface PlayListener {
@@ -87,13 +88,14 @@ export class PlayController {
   }
 
   /** ランタイムを作って開始する (Play・やり直し・タイトルへ で共通) */
-  private launch(project: ProjectData, showTitle: boolean, continueFromSave: boolean): GameRuntime {
+  private launch(project: ProjectData, showTitle: boolean, continueFromSave: boolean, scene?: { id: string; carry: SaveData }): GameRuntime {
     const ed = this.editor;
     const session = this.session!;
     const runtime = new GameRuntime({
       engine: this.viewport.engine,
       project,
-      sceneId: session.sceneId,
+      sceneId: scene?.id ?? session.sceneId,
+      carryState: scene?.carry ?? null,
       overlay: this.overlay,
       cameraMode: ed.settings.playCamera,
       quality: ed.settings.quality,
@@ -105,7 +107,7 @@ export class PlayController {
       saveKey: `pocket-engine:save:${project.id}`,
       onStats: (s) => this.listeners.forEach((l) => l.onStats?.(s)),
       onMessage: (m, level) => this.listeners.forEach((l) => l.onMessage?.(m, level)),
-      onRequest: (kind) => this.handleRequest(kind),
+      onRequest: (kind, sceneId) => this.handleRequest(kind, sceneId),
       onPauseChange: (p) => this.listeners.forEach((l) => l.onPause?.(p)),
     });
     this.runtime = runtime;
@@ -115,13 +117,33 @@ export class PlayController {
     return runtime;
   }
 
-  private handleRequest(kind: RuntimeRequest): void {
-    // ボタンのクリック処理の途中でランタイムを破棄しないよう、次のタスクで行う
+  private handleRequest(kind: RuntimeRequest, sceneId?: string): void {
+    // ボタンのクリック処理やイベントの実行の途中でランタイムを破棄しないよう、次のタスクで行う
     setTimeout(() => {
       if (!this.runtime) return;
       if (kind === 'exit') this.stop();
+      else if (kind === 'scene' && sceneId) this.changeScene(sceneId);
       else this.restart(kind === 'title');
     }, 0);
+  }
+
+  /** Play 中のシーン切り替え (スコア・持ち物・変数などは引き継ぐ) */
+  private changeScene(sceneId: string): void {
+    const old = this.runtime;
+    if (!old || !this.session) return;
+    const carry = old.carryOverState();
+    try {
+      old.dispose();
+    } catch (err) {
+      logger.warn('シーン切り替え時の終了処理でエラーが発生しました', 'Play', err);
+    }
+    this.runtime = null;
+    try {
+      this.launch(clone(this.editor.project), false, false, { id: sceneId, carry });
+    } catch (err) {
+      logger.error('シーンを切り替えられませんでした', 'Play', err);
+      this.stop();
+    }
   }
 
   /** 最初からやり直す (エディタの状態はそのまま) */

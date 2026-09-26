@@ -12,6 +12,7 @@ import {
   ValueCommand,
 } from './commands';
 import type { Editor } from './Editor';
+import type { EventRule, VariableDef } from './events';
 import { createEmptyScene } from './project';
 import type { SceneModel } from './SceneModel';
 import { matrixToTransform } from './transformMath';
@@ -461,6 +462,31 @@ export function setMusic(editor: Editor, patch: Partial<MusicData>, label = 'BGM
   };
   const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `music:${scene.id}:${mergeKey}` : null);
   return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** シーンのイベント一覧を置き換える (イベントエディタの編集はすべてこれを通す) */
+export function setEvents(editor: Editor, events: EventRule[], label = 'イベントを変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.events);
+  const after = clone(events);
+  const apply = (v: EventRule[]) => {
+    scene.events = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `events:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** プロジェクトの変数一覧を置き換える */
+export function setVariables(editor: Editor, variables: VariableDef[], label = '変数を変更'): boolean {
+  const project = editor.project;
+  const before = clone(project.variables);
+  const after = clone(variables);
+  const apply = (v: VariableDef[]) => {
+    project.variables = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  return editor.execute(new ValueCommand(label, apply, before, after, null));
 }
 
 /** ゲーム全体の設定 (タイトル・制限時間など) を変更する */

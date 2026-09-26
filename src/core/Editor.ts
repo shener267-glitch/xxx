@@ -27,6 +27,8 @@ export interface EditorEvents extends SceneEvents {
   'focus-request': string[];
   /** アセット一覧の変更 */
   'assets-changed': void;
+  /** イベント・変数の変更 */
+  'events-changed': void;
 }
 
 export interface ExecuteOptions {

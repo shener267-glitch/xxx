@@ -24,6 +24,8 @@ export class RuntimeInput implements GameInput {
   private actionQueued = false;
   /** Esc / P キー (一時停止) */
   onPauseKey: (() => void) | null = null;
+  /** キーが押された (イベントの「キーが押されたとき」用。'space' / 'enter' / 英数字) */
+  onKeyPress: ((key: string) => void) | null = null;
   private keys = new Set<string>();
   private joyPointer: number | null = null;
   private joyOrigin = { x: 0, y: 0 };
@@ -72,6 +74,7 @@ export class RuntimeInput implements GameInput {
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
     const k = e.key.toLowerCase();
     if (down && !e.repeat) {
+      this.onKeyPress?.(k === ' ' ? 'space' : k);
       if (k === ' ') this.jumpQueued = true;
       else if (k === 'e' || k === 'enter') this.actionQueued = true;
       else if (k === 'escape' || k === 'p') this.onPauseKey?.();

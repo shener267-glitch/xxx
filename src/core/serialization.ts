@@ -36,6 +36,7 @@ import type {
   WeatherType,
 } from './types';
 import { PROJECT_FORMAT, PROJECT_VERSION, SCENE_FORMAT } from './types';
+import { sanitizeRules, sanitizeVariables } from './events';
 import { clone, createId, normalizeHex } from './util';
 
 /**
@@ -328,6 +329,7 @@ export function sanitizeScene(raw: unknown): SceneData {
       autoColliders: bool(phys.autoColliders, dphys.autoColliders),
     },
     music: sanitizeMusic(raw.music),
+    events: sanitizeRules(raw.events),
   };
   repairHierarchy(scene);
   if (scene.playerId && !scene.entities[scene.playerId]) scene.playerId = null;
@@ -375,6 +377,7 @@ export function sanitizeProject(input: unknown): ProjectData {
     assets: sanitizeAssets(raw.assets),
     prefabs: Array.isArray(raw.prefabs) ? (clone(raw.prefabs) as ProjectData['prefabs']) : [],
     game: sanitizeGame(raw.game, name),
+    variables: sanitizeVariables(raw.variables),
   };
 }
 

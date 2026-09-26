@@ -195,6 +195,10 @@ export class GameUI {
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private screen: HTMLElement | null = null;
   private dialog: HTMLElement | null = null;
+  private dialogResolve: (() => void) | null = null;
+  private dialogChain: Promise<void> = Promise.resolve();
+  private dialogGen = 0;
+  private dialogQueue = 0;
   private items: UIItem[] = [];
   private objectUrls: string[] = [];
   private unsub: () => void;
@@ -347,6 +351,22 @@ export class GameUI {
     });
   }
 
+  /** UI 要素の文字を変える (イベントの「UI の文字を変える」) */
+  setItemText(id: string, text: string): void {
+    const item = this.items.find((i) => i.id === id);
+    if (!item || !item.textEl) return;
+    item.data = { ...item.data, text };
+    item.lastText = undefined;
+    this.updateItem(item);
+  }
+
+  setItemVisible(id: string, visible: boolean): boolean {
+    const item = this.items.find((i) => i.id === id);
+    if (!item) return false;
+    item.el.hidden = !visible;
+    return true;
+  }
+
   private updateItem(item: UIItem): void {
     updateUIElement(item, this.opts.state);
   }
@@ -356,6 +376,7 @@ export class GameUI {
   // ------------------------------------------------------------------
 
   toast(message: string, ms = 1800): void {
+    ms = Math.max(500, ms);
     this.toastEl.textContent = message;
     this.toastEl.classList.add('show');
     if (this.toastTimer) clearTimeout(this.toastTimer);
@@ -363,12 +384,31 @@ export class GameUI {
   }
 
   get dialogOpen(): boolean {
-    return this.dialog !== null;
+    return this.dialog !== null || this.dialogQueue > 0;
   }
 
   /** 会話ウィンドウ。タップで次のページへ進み、最後まで読むと閉じる */
+  /**
+   * 会話ウィンドウを表示する。表示中に別の会話が来たら、今の会話が終わってから順に表示する。
+   */
   showDialog(name: string, pages: string[], onPage?: () => void): Promise<void> {
-    this.closeDialog();
+    const gen = this.dialogGen;
+    let run: Promise<void>;
+    if (this.dialog === null && this.dialogQueue === 0) {
+      // 何も表示していなければすぐに開く (同じフレームのうちにゲームを止めるため)
+      run = this.openDialog(name, pages, onPage);
+    } else {
+      this.dialogQueue++;
+      run = this.dialogChain.then(() => {
+        this.dialogQueue--;
+        return gen === this.dialogGen ? this.openDialog(name, pages, onPage) : undefined;
+      });
+    }
+    this.dialogChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private openDialog(name: string, pages: string[], onPage?: () => void): Promise<void> {
     const list = pages.filter((p) => p.trim() !== '');
     if (list.length === 0) return Promise.resolve();
     return new Promise((resolve) => {
@@ -391,24 +431,30 @@ export class GameUI {
         e.preventDefault();
         e.stopPropagation();
         i++;
-        if (i >= list.length) {
-          this.closeDialog();
-          resolve();
-        } else {
-          show();
-        }
+        if (i >= list.length) this.finishDialog();
+        else show();
       });
       show();
       this.dialog = box;
+      this.dialogResolve = resolve;
       this.el.appendChild(box);
       this.syncBusy();
     });
   }
 
-  closeDialog(): void {
+  private finishDialog(): void {
     this.dialog?.remove();
     this.dialog = null;
+    const r = this.dialogResolve;
+    this.dialogResolve = null;
     this.syncBusy();
+    r?.();
+  }
+
+  /** 表示中の会話と、待っている会話をすべて閉じる (ゲーム終了時など) */
+  closeDialog(): void {
+    this.dialogGen++;
+    this.finishDialog();
   }
 
   /** 会話・画面の表示中は操作ボタンを隠す */

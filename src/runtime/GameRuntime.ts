@@ -12,6 +12,10 @@ import { SceneBuilder } from '../engine/SceneBuilder';
 import { findSunDirection, SceneEnvironment } from '../engine/SceneEnvironment';
 import type { EntityObject } from '../engine/SceneBuilder';
 import { resolveBodySpec } from '../engine/colliderShapes';
+import { splitPages } from '../components/gameplay';
+import { clone, createId } from '../core/util';
+import type { EventHost } from './EventSystem';
+import { EventSystem } from './EventSystem';
 import { resolveAsset } from '../engine/textures';
 import { AudioEngine } from './AudioEngine';
 import type { AudioVolumes } from './AudioEngine';
@@ -43,7 +47,7 @@ export interface RuntimeStats {
   memory: number | null;
 }
 
-export type RuntimeRequest = 'restart' | 'title' | 'exit';
+export type RuntimeRequest = 'restart' | 'title' | 'exit' | 'scene';
 
 export interface RuntimeOptions {
   engine: EngineRenderer;
@@ -67,10 +71,12 @@ export interface RuntimeOptions {
   topInset?: number;
   /** セーブデータの保存先 (null なら端末に保存しない) */
   saveKey?: string | null;
+  /** 前のシーンから引き継ぐ状態 (シーン切り替え時) */
+  carryState?: SaveData | null;
   onStats?(stats: RuntimeStats): void;
   onMessage?(message: string, level: 'info' | 'warn' | 'error'): void;
-  /** もう一度・タイトルへ・エディタに戻る */
-  onRequest?(kind: RuntimeRequest): void;
+  /** もう一度・タイトルへ・エディタに戻る・シーン切り替え */
+  onRequest?(kind: RuntimeRequest, sceneId?: string): void;
   onPauseChange?(paused: boolean): void;
 }
 
@@ -95,6 +101,15 @@ interface Interaction {
   label: string;
   distance: number;
   run: () => void;
+}
+
+interface Tween {
+  id: string;
+  obj: Object3D;
+  from: Vector3;
+  to: Vector3;
+  t: number;
+  dur: number;
 }
 
 interface Anim {
@@ -189,6 +204,9 @@ export class GameRuntime implements RuntimeAPI {
   private controllerCamera: PlayCameraMode | null = null;
   private canAttack = false;
   private startPositions = new Map<string, Vec3>();
+  private tweens: Tween[] = [];
+  /** ノーコードのイベント */
+  readonly events: EventSystem;
 
   constructor(private opts: RuntimeOptions) {
     const scene = opts.project.scenes.find((s) => s.id === opts.sceneId) ?? opts.project.scenes[0];
@@ -236,6 +254,10 @@ export class GameRuntime implements RuntimeAPI {
     // 最初のタップで音を出せるようにする (ブラウザの自動再生制限)
     opts.overlay.addEventListener('pointerdown', this.unlockAudio, { capture: true });
     this.build();
+    this.events = new EventSystem(scene.events ?? [], this.createEventHost());
+    this.inputImpl.onKeyPress = (key) => {
+      if (!this.frozen) this.events.onKey(key);
+    };
     this.env.apply(scene.environment, findSunDirection(this.scene));
     this.setCameraMode(this.controllerCamera ?? opts.cameraMode);
     this.unsubResize = opts.engine.onResize((w, h) => this.rig?.setAspect(w / h));
@@ -306,6 +328,19 @@ export class GameRuntime implements RuntimeAPI {
       const hp = this.health.get(playerId);
       if (hp) this.state.setHp(hp.hp, hp.maxHp);
     }
+    this.initVariables();
+    // 前のシーンからの引き継ぎ (スコア・持ち物・変数・HP など)
+    const carry = this.opts.carryState;
+    if (carry) {
+      this.state.load({ ...carry, position: null });
+      this.initVariables();
+      const hp = playerId ? this.health.get(playerId) : undefined;
+      if (hp && this.state.maxHp > 0) {
+        hp.maxHp = this.state.maxHp;
+        hp.hp = Math.max(1, this.state.hp);
+        this.state.setHp(hp.hp, hp.maxHp);
+      }
+    }
     for (const e of order) {
       const obj = this.objects.get(e.id);
       if (obj) {
@@ -340,6 +375,13 @@ export class GameRuntime implements RuntimeAPI {
     this.ui.configureHud({ hasHp: !!(playerId && this.health.has(playerId)), showLives: this.controllerId !== null && this.state.lives > 1 });
     this.ui.setControls({ jump: this.controllerId !== null, action: this.controllerId !== null && (this.canAttack || hasNpc) });
     this.ui.setActionLabel('攻撃');
+  }
+
+  /** プロジェクトの変数に初期値を入れる (既に値があるものはそのまま) */
+  private initVariables(): void {
+    for (const v of this.opts.project.variables ?? []) {
+      if (this.state.getVar(v.name) === undefined) this.state.setVar(v.name, v.initial);
+    }
   }
 
   private report(message: string, level: 'info' | 'warn' | 'error', entity?: EntityData | string, err?: unknown): void {
@@ -529,12 +571,14 @@ export class GameRuntime implements RuntimeAPI {
     const music = this.sceneData.music;
     if (music.source) this.audio.playMusic(music.source, music.volume);
     this.emit('start', '');
+    this.events.start();
   }
 
   private loadSave(): void {
     const data = readSave(this.opts.saveKey);
     if (!data) return;
     this.state.load(data);
+    this.initVariables();
     const pid = this.playerId;
     if (pid) {
       const hp = this.health.get(pid);
@@ -582,6 +626,13 @@ export class GameRuntime implements RuntimeAPI {
         }
       }
       this.physics?.step(dt);
+      this.updateTweens(dt);
+      try {
+        // 会話などでこのフレームの途中から止まった場合は、再開してから処理する
+        if (!this.frozen) this.events.update(dt);
+      } catch (err) {
+        this.report('イベントの実行中にエラーが発生しました', 'error', undefined, err);
+      }
       if (this.controllerId) {
         // コンポーネントの update 中に offerInteraction で設定される
         const it = this.interaction as Interaction | null;
@@ -654,9 +705,226 @@ export class GameRuntime implements RuntimeAPI {
     cancelAnimationFrame(this.raf);
   }
 
-  private request(kind: RuntimeRequest): void {
-    this.audio.play('builtin:click', 0.6);
-    if (this.opts.onRequest) this.opts.onRequest(kind);
+  private request(kind: RuntimeRequest, sceneId?: string): void {
+    if (kind !== 'scene') this.audio.play('builtin:click', 0.6);
+    if (this.opts.onRequest) this.opts.onRequest(kind, sceneId);
+  }
+
+  /** シーン切り替え時に引き継ぐ状態 */
+  carryOverState(): SaveData {
+    return this.state.toSave(this.sceneData.id, null);
+  }
+
+  // ------------------------------------------------------------------
+  // イベントから使う操作
+  // ------------------------------------------------------------------
+
+  private createEventHost(): EventHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    return {
+      get state() {
+        return rt.state;
+      },
+      get playerId() {
+        return rt.playerId;
+      },
+      get time() {
+        return rt.time;
+      },
+      exists: (id) => rt.objects.has(id) && !rt.destroyed.has(id),
+      overlaps: (a, b, m) => rt.overlaps(a, b, m),
+      distance: (a, b) => rt.worldPosition(a, new Vector3()).distanceTo(rt.worldPosition(b, new Vector3())),
+      damage: (t, amount) => rt.damage(t, amount),
+      heal: (t, amount) => rt.heal(t, amount),
+      playSound: (src, vol) => rt.audio.play(src, vol),
+      playMusic: (src) => {
+        if (src) rt.audio.playMusic(src, rt.sceneData.music.volume || 0.6);
+        else rt.audio.stopMusic();
+      },
+      toast: (msg, sec) => rt.ui.toast(msg, sec * 1000),
+      talk: (name, text) => rt.talk(name, splitPages(text).length > 0 ? splitPages(text) : [text || '……']),
+      setUIText: (id, text) => rt.ui.setItemText(id, text),
+      setVisible: (id, v) => rt.setVisible(id, v),
+      destroy: (id) => rt.destroyEntity(id, 'pop'),
+      moveBy: (id, offset, sec) => rt.moveBy(id, offset, sec),
+      teleport: (id, dest) => rt.warp(id, dest),
+      spawn: (id, at) => rt.spawn(id, at),
+      launch: (id, v) => rt.launch(id, v),
+      changeScene: (sceneId) => {
+        if (!rt.opts.project.scenes.some((sc) => sc.id === sceneId)) {
+          rt.report('切り替え先のシーンが見つかりません', 'warn');
+          return;
+        }
+        rt.request('scene', sceneId);
+      },
+      gameClear: (msg) => rt.gameClear(msg || undefined),
+      gameOver: (msg) => rt.gameOver(msg || undefined),
+      log: (msg, level) => rt.report(msg, level),
+    };
+  }
+
+  /** 表示 / 非表示 (画面の UI にも使える)。3D のオブジェクトは当たり判定も外す */
+  setVisible(id: string, visible: boolean): void {
+    if (this.destroyed.has(id)) return;
+    const e = this.sceneData.entities[id];
+    if (e?.kind === 'ui') {
+      this.ui.setItemVisible(id, visible);
+      return;
+    }
+    const obj = this.objects.get(id);
+    if (!obj) return;
+    obj.visible = visible;
+    this.blinkUntil.delete(id);
+    this.physics?.setActive(id, visible);
+  }
+
+  /** 少しずつ動かす (seconds = 0 なら一瞬で) */
+  moveBy(id: string, offset: Vec3, seconds: number): void {
+    const obj = this.objects.get(id);
+    if (!obj || this.destroyed.has(id)) return;
+    this.tweens = this.tweens.filter((t) => t.id !== id);
+    const from = obj.position.clone();
+    const to = from.clone().add(new Vector3(offset[0], offset[1], offset[2]));
+    if (seconds <= 0) {
+      this.placeObject(id, obj, to);
+      return;
+    }
+    this.tweens.push({ id, obj, from, to, t: 0, dur: seconds });
+  }
+
+  private placeObject(id: string, obj: Object3D, local: Vector3): void {
+    obj.position.copy(local);
+    const body = this.physics?.bodies.get(id);
+    if (body && body.type === 'dynamic') {
+      obj.updateWorldMatrix(true, false);
+      const w = new Vector3().setFromMatrixPosition(obj.matrixWorld);
+      this.physics!.teleport(id, [w.x, w.y, w.z]);
+    }
+  }
+
+  private updateTweens(dt: number): void {
+    if (this.tweens.length === 0) return;
+    this.tweens = this.tweens.filter((tw) => {
+      if (this.destroyed.has(tw.id)) return false;
+      tw.t += dt;
+      const k = Math.min(1, tw.t / tw.dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      this.placeObject(tw.id, tw.obj, tw.from.clone().lerp(tw.to, e));
+      return k < 1;
+    });
+  }
+
+  /** 目印のオブジェクトの場所へ移動 (ワープ) */
+  warp(id: string, destId: string): void {
+    const obj = this.objects.get(id);
+    if (!obj || !this.objects.has(destId)) return;
+    const box = this.bounds(destId);
+    const p = this.worldPosition(destId, new Vector3());
+    // 目印の上に立てるよう、少し上に置く
+    const pos: Vec3 = [p.x, Math.max(p.y, box.isEmpty() ? p.y : box.max.y) + (id === this.playerId ? 1 : 0), p.z];
+    this.tweens = this.tweens.filter((t) => t.id !== id);
+    if (id === this.playerId) {
+      this.movePlayer(pos);
+      return;
+    }
+    if (this.physics?.bodies.get(id)) {
+      this.physics.teleport(id, pos);
+      return;
+    }
+    const w = new Vector3(pos[0], pos[1], pos[2]);
+    if (obj.parent) obj.parent.worldToLocal(w);
+    obj.position.copy(w);
+  }
+
+  /** 速さを与えて飛ばす (物理のある物体。物理なしのプレイヤーは上方向のみ) */
+  launch(id: string, v: Vec3): void {
+    if (this.physics?.bodies.get(id)) {
+      this.physics.setVelocity(id, v);
+      return;
+    }
+    if (id === this.playerId && v[1] > 0) this.playerHandle?.bounce(v[1]);
+  }
+
+  /** オブジェクト (と子) の複製を作ってゲームに出す。新しい ID を返す */
+  spawn(sourceId: string, atId: string | null): string | null {
+    const data = this.sceneData;
+    const src = data.entities[sourceId];
+    const srcObj = this.objects.get(sourceId);
+    if (!src || !srcObj || src.kind === 'ui') return null;
+    if (Object.keys(data.entities).length > 3000) {
+      this.report('オブジェクトが多すぎるため複製できません', 'warn');
+      return null;
+    }
+    const idMap = new Map<string, string>();
+    const collect = (id: string) => {
+      const e = data.entities[id];
+      if (!e) return;
+      idMap.set(id, createId('e'));
+      e.children.forEach(collect);
+    };
+    collect(sourceId);
+    const clones: EntityData[] = [];
+    for (const [oldId, newId] of idMap) {
+      const e = clone(data.entities[oldId]);
+      e.id = newId;
+      e.parent = e.parent && idMap.has(e.parent) ? idMap.get(e.parent)! : null;
+      e.children = e.children.map((c) => idMap.get(c)).filter((c): c is string => !!c);
+      e.components = e.components.map((c) => ({ ...c, id: createId('c') }));
+      data.entities[newId] = e;
+      clones.push(e);
+    }
+    const root = clones[0];
+    root.visible = true;
+    root.parent = null;
+    data.roots.push(root.id);
+    // 元のワールド姿勢 (または目印の位置) に置く
+    srcObj.updateWorldMatrix(true, false);
+    const pos = new Vector3();
+    const quat = new Quaternion();
+    const scale = new Vector3();
+    srcObj.matrixWorld.decompose(pos, quat, scale);
+    if (atId && this.objects.has(atId)) this.worldPosition(atId, pos);
+    const build = (e: EntityData, parent: Object3D) => {
+      const obj = this.builder.create(e);
+      this.objects.set(e.id, obj);
+      parent.add(obj);
+      for (const c of e.children) build(data.entities[c], obj);
+      return obj;
+    };
+    const rootObj = build(root, this.scene);
+    rootObj.position.copy(pos);
+    rootObj.quaternion.copy(quat);
+    rootObj.scale.copy(scale);
+    rootObj.updateMatrixWorld(true);
+    for (const e of clones) {
+      const obj = this.objects.get(e.id)!;
+      this.startPositions.set(e.id, [pos.x, pos.y, pos.z]);
+      const hc = e.components.find((x) => x.enabled && x.type === 'health');
+      if (hc) {
+        const maxHp = Math.max(1, Number(hc.props.maxHp) || 100);
+        this.health.set(e.id, { hp: maxHp, maxHp, invincibleTime: Number(hc.props.invincibleTime) || 0, invincibleUntil: 0, score: Number(hc.props.score) || 0 });
+      }
+      if (this.physics && e.visible) {
+        const spec = resolveBodySpec(e, { autoColliders: data.physics.autoColliders && this.controllerId !== null });
+        if (spec) this.physics.addEntity(e, obj, spec);
+      }
+      for (const c of e.components) {
+        if (!c.enabled || c.type === 'player') continue;
+        const def = getComponentDef(c.type);
+        if (!def?.create) continue;
+        try {
+          const instance = def.create({ entity: e, object: obj, runtime: this }, c.props);
+          const active: ActiveComponent = { entityId: e.id, instance, label: def.label, entityName: e.name, failed: false };
+          this.components.push(active);
+          instance.start?.();
+        } catch (err) {
+          this.report(`${def.label}の初期化に失敗しました`, 'error', e, err);
+        }
+      }
+    }
+    this.emit('spawned', root.id, { source: sourceId });
+    return root.id;
   }
 
   private onUIButton(id: string, action: UIButtonAction): void {
@@ -756,7 +1024,7 @@ export class GameRuntime implements RuntimeAPI {
     if (this.destroyed.has(a) || this.destroyed.has(b)) return false;
     const oa = this.objects.get(a);
     const ob = this.objects.get(b);
-    if (!oa || !ob || !oa.visible) return false;
+    if (!oa || !ob || !oa.visible || !ob.visible) return false;
     _box.copy(this.bounds(a)).expandByScalar(margin);
     return _box.intersectsBox(this.bounds(b));
   }
@@ -926,6 +1194,7 @@ export class GameRuntime implements RuntimeAPI {
   }
 
   emit(event: string, entityId: string, data?: unknown): void {
+    this.events?.onGameEvent(event, entityId, data);
     this.eventLog.push({ event, entityId, time: this.time });
     if (this.eventLog.length > 100) this.eventLog.shift();
     for (const fn of this.eventListeners) {

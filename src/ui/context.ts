@@ -4,7 +4,7 @@ import type { ProjectService } from '../app/ProjectService';
 import type { Editor } from '../core/Editor';
 import type { EditorViewport } from '../engine/EditorViewport';
 
-export type TabId = 'scene' | 'inspector' | 'assets' | 'settings';
+export type TabId = 'scene' | 'inspector' | 'events' | 'assets' | 'settings';
 export type SheetState = 'closed' | 'half' | 'full';
 
 /** 各 UI 部品が共有するアプリの機能 */

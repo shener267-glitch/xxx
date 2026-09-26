@@ -1,3 +1,5 @@
+import type { EventRule, VariableDef } from './events';
+
 /**
  * Pocket Engine のデータモデル定義。
  *
@@ -254,6 +256,8 @@ export interface SceneData {
   playerId: string | null;
   physics: PhysicsSettings;
   music: MusicData;
+  /** ノーコードのイベント (「いつ」→「もし」→「なら」) */
+  events: EventRule[];
 }
 
 export type AssetType = 'image' | 'audio' | 'model' | 'font';
@@ -273,7 +277,7 @@ export interface AssetEntry {
   createdAt: number;
 }
 
-/** Phase 5 で Prefab を実装する際の予約領域 */
+/** Phase 6 で Prefab を実装する際の予約領域 */
 export interface PrefabEntry {
   id: string;
   name: string;
@@ -299,6 +303,8 @@ export interface ProjectData {
   assets: AssetEntry[];
   prefabs: PrefabEntry[];
   game: GameSettings;
+  /** プロジェクト全体の変数 (イベントで使う) */
+  variables: VariableDef[];
 }
 
 /** プロジェクト一覧用の軽量メタ情報 */

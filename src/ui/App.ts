@@ -15,6 +15,7 @@ import { h } from './dom';
 import { openAddSheet, openEntityMenu, openMainMenu, showHelp } from './menus';
 import { toast } from './overlays';
 import { AssetsPanel } from './panels/AssetsPanel';
+import { EventsPanel } from './panels/EventsPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { ScenePanel } from './panels/ScenePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
@@ -94,6 +95,7 @@ export class App implements AppContext {
 
     this.sheet.addPanel('scene', new ScenePanel(this).el);
     this.sheet.addPanel('inspector', new InspectorPanel(this).el);
+    this.sheet.addPanel('events', new EventsPanel(this).el);
     this.sheet.addPanel('assets', new AssetsPanel(this).el);
     this.sheet.addPanel('settings', new SettingsPanel(this).el);
 

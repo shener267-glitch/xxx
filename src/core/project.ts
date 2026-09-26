@@ -16,6 +16,7 @@ export function createEmptyScene(name: string, withStarterContent = true): Scene
     playerId: null,
     physics: defaultPhysics(),
     music: defaultMusic(),
+    events: [],
   };
   if (!withStarterContent) return scene;
 
@@ -94,6 +95,7 @@ export function createProject(name = '新しいゲーム', sample = true): Proje
     assets: [],
     prefabs: [],
     game: defaultGameSettings(name),
+    variables: [],
   };
 }
 

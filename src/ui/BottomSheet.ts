@@ -5,6 +5,7 @@ import { icon } from './icons';
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'scene', label: 'シーン', icon: 'layers' },
   { id: 'inspector', label: 'インスペクター', icon: 'sliders' },
+  { id: 'events', label: 'イベント', icon: 'zap' },
   { id: 'assets', label: 'アセット', icon: 'folder' },
   { id: 'settings', label: '設定', icon: 'settings' },
 ];

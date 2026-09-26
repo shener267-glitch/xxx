@@ -6,7 +6,7 @@ import { addFromCatalog, catalogGrid } from '../menus';
 /**
  * Assets タブ。
  * Phase 1 では組み込みの基本オブジェクト (図形・ライト・カメラ) のライブラリを提供する。
- * Phase 5 で 3D モデル・画像・音声などの読み込み、フォルダ、Prefab をここに追加する。
+ * 今後、3D モデル・画像・音声などの読み込み、フォルダ、Prefab をここに追加する。
  */
 export class AssetsPanel {
   readonly el: HTMLElement;
@@ -36,7 +36,7 @@ export class AssetsPanel {
           { class: 'upcoming-grid' },
           upcoming.map(([ic, label]) => h('div', { class: 'upcoming-item' }, h('span', { html: icon(ic, 20) }), h('span', { text: label }))),
         ),
-        h('p', { class: 'field-note', text: 'ファイルの読み込み・フォルダ分け・検索・プレビュー・Prefab の保存と大量配置は Phase 5 で追加予定です。' }),
+        h('p', { class: 'field-note', text: 'ファイルの読み込み・フォルダ分け・検索・プレビュー・Prefab の保存と大量配置は今後のアップデートで追加予定です。(画像・音声は Inspector の各欄から読み込めます)' }),
       ),
     );
   }

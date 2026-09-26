@@ -96,6 +96,17 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
 - 「もう一度」「タイトルへ」はランタイムを作り直す (`PlayController.restart`)。セーブデータは `localStorage` の
   `pocket-engine:save:<プロジェクトID>` に保存し、タイトル画面の「つづきから」で読み込む
 
+### イベント (Phase 4)
+
+- データ: `SceneData.events: EventRule[]` (いつ = `trigger`、もし = `conditions`、なら = `actions`、ちがえば = `elseActions`)、
+  `ProjectData.variables: VariableDef[]`。どれも「種類 + パラメータ」の `EventBlock` で表す (`core/events.ts`)
+- 各ブロックの定義 (`BlockDef`) にパラメータの型を書いておくと、エディタの入力欄と文章の要約が自動で作られる
+- 実行: `runtime/EventSystem.ts`。ゲーム本体とは `EventHost` だけでやり取りするので単体テストできる
+  - 時間・触れた・条件のトリガーは毎フレーム判定 (変化した瞬間だけ発火)、拾った・倒した などは `runtime.emit` から受け取る
+  - 「待つ」「会話」は実行を一時停止して次のフレーム以降に再開。1 フレームの動作数に上限を設けて無限ループを防ぐ
+  - 知らない種類 (新しいバージョンのデータ) は読み込み時に残し、実行時は無視する
+- シーン切り替えは `PlayController` がランタイムを作り直し、`GameState` を引き継ぐ
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -132,6 +143,5 @@ registerComponent({
 
 | フェーズ | 追加場所 |
 | --- | --- |
-| イベント | `SceneData` にイベント定義、ランタイムに条件評価器 (`runtime.emit` / `eventListeners` を入口にする) |
 | アセット・Prefab | `ProjectData.assets / prefabs` と IndexedDB の `assets` ストア |
 | 書き出し | `runtime/` のみを含むプレイヤー用エントリーポイント + ZIP 生成 |

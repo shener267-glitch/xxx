@@ -155,6 +155,15 @@ export class PhysicsWorld {
     return info;
   }
 
+  /** 一時的に当たり判定を外す / 戻す (オブジェクトを隠したときなど) */
+  setActive(id: string, active: boolean): void {
+    const info = this.bodies.get(id);
+    if (!info) return;
+    const inWorld = this.world.bodies.includes(info.body);
+    if (active && !inWorld) this.world.addBody(info.body);
+    else if (!active && inWorld) this.world.removeBody(info.body);
+  }
+
   removeEntity(id: string): void {
     const info = this.bodies.get(id);
     if (!info) return;

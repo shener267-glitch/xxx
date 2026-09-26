@@ -1,4 +1,5 @@
 import { createEntity } from './catalog';
+import { createBlock, createRule } from './events';
 import type { CreateKind } from './catalog';
 import { createEmptyScene, createProject } from './project';
 import type { EntityData, ProjectData, SceneData, Vec3 } from './types';
@@ -84,10 +85,22 @@ function coinsScene(): SceneData {
   add(scene, 'game-heal', '回復アイテム', [-8, 0.8, 7]);
   add(scene, 'game-savepoint', 'セーブポイント', [0, 0.05, 1]);
   add(scene, 'game-goal', 'ゴール', [0, 1.5, -12], (e) => props(e, 'goal', { requireScore: 100, message: 'ステージクリア！' }));
-  add(scene, 'ui-text', '説明', [0, 0, 0], (e) => {
+  const guide = add(scene, 'ui-text', '説明', [0, 0, 0], (e) => {
     Object.assign(e.ui!, { anchor: 'top', y: 84, text: 'コインを集めて (スコア 100) ゴールへ！', fontSize: 14, backgroundOpacity: 0.4, radius: 10 });
   });
   scene.music = { source: 'builtin:happy', volume: 0.5 };
+  // イベントの見本
+  const reach = createRule('スコア 100 でお知らせ', createBlock('trigger', 'condition'));
+  reach.once = true;
+  reach.conditions.push(createBlock('condition', 'score', { op: '>=', value: 100 }));
+  reach.actions.push(
+    createBlock('action', 'sound', { sound: 'builtin:powerup' }),
+    createBlock('action', 'message', { text: 'スコア 100 達成！ ゴールへ向かおう', seconds: 3 }),
+    createBlock('action', 'setText', { target: guide.id, text: 'ゴール (黄色い柱) へ向かおう！' }),
+  );
+  const defeat = createRule('敵を倒した数を数える', createBlock('trigger', 'defeated', { target: '' }));
+  defeat.actions.push(createBlock('action', 'setVar', { name: '倒した数', mode: 'add', value: '1' }), createBlock('action', 'score', { value: 20 }));
+  scene.events = [reach, defeat];
   return scene;
 }
 
@@ -150,10 +163,20 @@ function adventureScene(): SceneData {
   });
   add(scene, 'game-heal', '薬草', [6, 0.8, -3]);
   add(scene, 'game-savepoint', 'セーブポイント', [5, 0.05, 0]);
-  add(scene, 'ui-text', '目的', [0, 0, 0], (e) => {
+  const goal = add(scene, 'ui-text', '目的', [0, 0, 0], (e) => {
     Object.assign(e.ui!, { anchor: 'top', y: 84, text: '村長に話しかけてみよう', fontSize: 14, backgroundOpacity: 0.4, radius: 10 });
   });
   scene.music = { source: 'builtin:adventure', volume: 0.45 };
+  // イベントの見本: 話したら・鍵を拾ったら目的の文字を変える
+  const chief = Object.values(scene.entities).find((e) => e.name === '村長')!;
+  const key = Object.values(scene.entities).find((e) => e.name === '鍵')!;
+  const talked = createRule('村長と話したら', createBlock('trigger', 'talk', { target: chief.id }));
+  talked.conditions.push(createBlock('condition', 'item', { item: '鍵', count: 1 }));
+  talked.actions.push(createBlock('action', 'dialog', { name: '村長', text: 'おお、鍵を見つけてくれたか！ 北の扉へ向かうのじゃ。' }));
+  talked.elseActions.push(createBlock('action', 'setText', { target: goal.id, text: '東の森で鍵を探そう' }));
+  const gotKey = createRule('鍵を拾ったら', createBlock('trigger', 'pickup', { target: key.id }));
+  gotKey.actions.push(createBlock('action', 'setText', { target: goal.id, text: '北の扉を開けよう！' }), createBlock('action', 'sound', { sound: 'builtin:powerup' }));
+  scene.events = [talked, gotKey];
   return scene;
 }
 
@@ -166,6 +189,7 @@ export function createProjectFromTemplate(id: TemplateId, name: string): Project
   project.startSceneId = scene.id;
   project.game.title = name;
   if (id === 'coins') {
+    project.variables = [{ id: 'var_defeated', name: '倒した数', initial: 0 }];
     project.game.subtitle = 'コインを集めてゴールをめざせ！';
     project.game.titleBackground = '#2a6f3f';
     project.game.timeLimit = 180;
