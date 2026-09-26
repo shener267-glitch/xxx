@@ -10,7 +10,9 @@ import { button, clear, h, rafThrottle } from '../dom';
 import { icon } from '../icons';
 import { openParentPicker } from '../menus';
 import { actionSheet, toast } from '../overlays';
-import { ColorField, fieldRow, NumberField, section as sectionWidget, Select, Slider, TextField, Toggle, Vec3Field } from '../widgets';
+import { ColorField, fieldRow, NumberField, section as sectionWidget, Select, Slider, TextArea, TextField, Toggle, Vec3Field } from '../widgets';
+import type { InspectorKit } from './gameInspector';
+import { gameSettingsSection, musicSection, soundField, uiElementSection } from './gameInspector';
 
 type Refresher = () => void;
 
@@ -28,8 +30,10 @@ export class InspectorPanel {
   /** セクションの開閉状態 (再構築しても保つ) */
   private collapsed = new Map<string, boolean>();
   private scheduleUpdate = rafThrottle(() => this.update());
+  private kit: InspectorKit;
 
   constructor(private ctx: AppContext) {
+    this.kit = { ctx, bind: (fn) => this.bind(fn), section: (t, i, b, o) => this.section(t, i, b, o) };
     this.body = h('div', { class: 'inspector-body' });
     this.el = h('div', { class: 'panel inspector-panel', attrs: { 'data-testid': 'inspector' } }, this.body);
     const ev = ctx.editor.events;
@@ -98,7 +102,7 @@ export class InspectorPanel {
     }
     return list
       .map((e) =>
-        [e.id, e.kind, e.mesh?.shape, e.mesh?.material.preset, e.light?.type, e.components.map((c) => `${c.id}:${c.type}`).join(',')].join('|'),
+        [e.id, e.kind, e.mesh?.shape, e.mesh?.material.preset, e.light?.type, e.ui?.type, e.components.map((c) => `${c.id}:${c.type}`).join(',')].join('|'),
       )
       .join('/');
   }
@@ -177,6 +181,8 @@ export class InspectorPanel {
         fieldRow('シーン名', nameField.el),
         fieldRow('プレイヤー', playerSelect, { hint: '三人称カメラで操作する対象' }),
       ]),
+      gameSettingsSection(this.kit),
+      musicSection(this.kit),
       ...this.environmentSections(),
       this.physicsSection(),
       this.section('統計', 'info', [stats]),
@@ -310,11 +316,14 @@ export class InspectorPanel {
     const ed = this.ctx.editor;
     const single = list.length === 1 ? list[0] : null;
     this.body.appendChild(this.header(list));
-    this.body.appendChild(this.transformSection());
-
     const kinds = new Set(list.map((e) => e.kind));
     const kind = kinds.size === 1 ? list[0].kind : null;
-    if (kind === 'mesh') {
+    // 画面の UI は 3D の位置を持たない
+    if (kind !== 'ui') this.body.appendChild(this.transformSection());
+
+    if (kind === 'ui' && single) {
+      this.body.appendChild(uiElementSection(this.kit, single));
+    } else if (kind === 'mesh') {
       this.body.appendChild(this.meshSection());
       this.body.appendChild(this.materialSection(list));
     } else if (kind === 'light') {
@@ -746,7 +755,7 @@ export class InspectorPanel {
         );
       },
     });
-    const note = h('p', { class: 'field-note', text: '動作は Play 中に実行されます。物理・イベント・プレイヤー操作などは今後のアップデートで追加されます。' });
+    const note = h('p', { class: 'field-note', text: '動作は Play 中に実行されます。「条件 → 動作」のイベントは今後のアップデートで追加されます。' });
     return this.section('動作 (コンポーネント)', 'sparkles', [...cards, add, note], { testId: 'sec-components' });
   }
 
@@ -755,7 +764,26 @@ export class InspectorPanel {
     const get = () => ed.scene.get(entityId)?.components.find((c) => c.id === compId)?.props[schema.key];
     const setVal = (v: unknown) => A.setComponentProp(ed, entityId, compId, schema.key, v);
     const label = schema.unit ? `${schema.label} (${schema.unit})` : schema.label;
+    const hint = schema.hint;
     switch (schema.type) {
+      case 'text': {
+        const t = new TextArea({ title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
+        this.bind(() => t.set(String(get() ?? '')));
+        return fieldRow(label, t.el, { stacked: true, hint });
+      }
+      case 'sound': {
+        const field = soundField(this.kit, {
+          kind: 'sfx',
+          title: schema.label,
+          testId: `prop-${schema.key}`,
+          get: () => {
+            const v = get();
+            return typeof v === 'string' && v ? v : null;
+          },
+          set: (v) => setVal(v ?? ''),
+        });
+        return fieldRow(label, field, { hint });
+      }
       case 'vec3': {
         const f = new Vec3Field({
           title: schema.label,
@@ -774,19 +802,19 @@ export class InspectorPanel {
         return fieldRow(label, f.el, { stacked: true });
       }
       case 'number': {
-        const f = new NumberField({ step: schema.step ?? 0.1, min: schema.min, max: schema.max, title: schema.label, onChange: setVal });
+        const f = new NumberField({ step: schema.step ?? 0.1, min: schema.min, max: schema.max, title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
         this.bind(() => f.set(Number(get()) || 0));
-        return fieldRow(label, f.el);
+        return fieldRow(label, f.el, { hint });
       }
       case 'boolean': {
-        const t = new Toggle({ title: schema.label, onChange: setVal });
+        const t = new Toggle({ title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
         this.bind(() => t.set(!!get()));
-        return fieldRow(label, t.el);
+        return fieldRow(label, t.el, { hint });
       }
       case 'select': {
-        const s = new Select({ options: schema.options ?? [], title: schema.label, onChange: setVal });
+        const s = new Select({ options: schema.options ?? [], title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
         this.bind(() => s.set(String(get() ?? '')));
-        return fieldRow(label, s.el);
+        return fieldRow(label, s.el, { hint });
       }
       case 'color': {
         const c = new ColorField({ title: schema.label, onChange: setVal });
@@ -794,9 +822,9 @@ export class InspectorPanel {
         return fieldRow(label, c.el);
       }
       default: {
-        const t = new TextField({ title: schema.label, onChange: setVal });
+        const t = new TextField({ title: schema.label, testId: `prop-${schema.key}`, onChange: setVal });
         this.bind(() => t.set(String(get() ?? '')));
-        return fieldRow(label, t.el);
+        return fieldRow(label, t.el, { hint });
       }
     }
   }

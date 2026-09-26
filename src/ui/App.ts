@@ -23,6 +23,7 @@ import { openProjectsModal } from './ProjectsModal';
 import { installShortcuts } from './shortcuts';
 import { ToolBar } from './ToolBar';
 import { TopBar } from './TopBar';
+import { UIPreview } from './UIPreview';
 import { ViewportOverlay } from './ViewportOverlay';
 
 /**
@@ -41,6 +42,7 @@ export class App implements AppContext {
   readonly play: PlayController;
   readonly sheet: BottomSheet;
   readonly root: HTMLElement;
+  readonly uiPreview: UIPreview;
 
   constructor(mount: HTMLElement, project: ProjectData, storage: Storage, settings: EditorSettings) {
     this.editor = new Editor(project, settings);
@@ -58,7 +60,8 @@ export class App implements AppContext {
     this.engine = new EngineRenderer(viewportEl, { quality: settings.quality, shadows: settings.shadows });
     this.viewport = new EditorViewport(ed, this.engine, viewportEl, {
       onTap: (x, y, additive) => {
-        const id = this.viewport.pick(x, y);
+        // 画面の UI (文字・ボタンなど) のプレビューを優先して選ぶ
+        const id = this.uiPreview.hitTest(x, y) ?? this.viewport.pick(x, y);
         if (id) ed.select(id, additive);
         else if (!additive && !ed.multiSelect) ed.selection.clear();
       },
@@ -86,7 +89,8 @@ export class App implements AppContext {
     const toolbar = new ToolBar(this);
     const overlay = new ViewportOverlay(this);
     const hud = new PlayHUD(this);
-    main.append(overlay.el, hud.el, this.sheet.el);
+    this.uiPreview = new UIPreview(this);
+    main.append(this.uiPreview.el, overlay.el, hud.el, this.sheet.el);
 
     this.sheet.addPanel('scene', new ScenePanel(this).el);
     this.sheet.addPanel('inspector', new InspectorPanel(this).el);

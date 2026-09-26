@@ -2,14 +2,17 @@
  * Play 中の入力。
  * - タッチ: 画面左側を触るとその場に仮想ジョイスティックが出る。右側ドラッグで視点操作
  * - マウス: ドラッグで視点操作、ホイールでズーム
- * - キーボード: WASD / 矢印キーで移動、Shift で走る
+ * - キーボード: WASD / 矢印キーで移動、Shift で走る、Space でジャンプ、E / Enter でアクション
+ * - 画面のボタン (data-interactive を持つ要素) を押したときはジョイスティックにしない
  *
  * 書き出したゲーム (Phase 6) でもそのまま使えるよう、エディタには依存しない。
  */
 
+import type { GameInput } from '../components/registry';
+
 const JOYSTICK_RADIUS = 56;
 
-export class RuntimeInput {
+export class RuntimeInput implements GameInput {
   /** 移動入力 (-1〜1)。x: 右が正、y: 前が正 */
   readonly move = { x: 0, y: 0 };
   /** 走行中 (ジョイスティックを大きく倒す / Shift) */
@@ -17,6 +20,10 @@ export class RuntimeInput {
   /** 視点操作の累積量 (px)。consumeLook() で取り出す */
   private look = { x: 0, y: 0 };
   private zoomDelta = 0;
+  private jumpQueued = false;
+  private actionQueued = false;
+  /** Esc / P キー (一時停止) */
+  onPauseKey: (() => void) | null = null;
   private keys = new Set<string>();
   private joyPointer: number | null = null;
   private joyOrigin = { x: 0, y: 0 };
@@ -64,11 +71,17 @@ export class RuntimeInput {
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
     const k = e.key.toLowerCase();
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift', ' '].includes(k)) {
+    if (down && !e.repeat) {
+      if (k === ' ') this.jumpQueued = true;
+      else if (k === 'e' || k === 'enter') this.actionQueued = true;
+      else if (k === 'escape' || k === 'p') this.onPauseKey?.();
+    }
+    if (k === ' ') e.preventDefault();
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
       if (down) this.keys.add(k);
       else this.keys.delete(k);
       this.updateMove();
-      if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+      if (k.startsWith('arrow')) e.preventDefault();
     }
   }
 
@@ -91,6 +104,9 @@ export class RuntimeInput {
   }
 
   private onDown(e: PointerEvent): void {
+    // ゲーム画面のボタン・会話ウィンドウなどはそれ自身が処理する
+    const target = e.target as Element | null;
+    if (target && target !== this.el && target.closest?.('[data-interactive]')) return;
     e.preventDefault();
     try {
       this.el.setPointerCapture(e.pointerId);
@@ -178,6 +194,34 @@ export class RuntimeInput {
     this.look.x = 0;
     this.look.y = 0;
     return v;
+  }
+
+  pressJump(): void {
+    this.jumpQueued = true;
+  }
+
+  pressAction(): void {
+    this.actionQueued = true;
+  }
+
+  consumeJump(): boolean {
+    const v = this.jumpQueued;
+    this.jumpQueued = false;
+    return v;
+  }
+
+  consumeAction(): boolean {
+    const v = this.actionQueued;
+    this.actionQueued = false;
+    return v;
+  }
+
+  /** 溜まった入力を捨てる (会話中・メニュー表示中など) */
+  clearQueued(): void {
+    this.jumpQueued = false;
+    this.actionQueued = false;
+    this.look.x = 0;
+    this.look.y = 0;
   }
 
   consumeZoom(): number {

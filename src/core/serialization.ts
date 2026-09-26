@@ -1,4 +1,15 @@
-import { defaultCamera, defaultEnvironment, defaultLight, defaultMaterial, defaultMesh, defaultPhysics, defaultTransform } from './catalog';
+import {
+  defaultCamera,
+  defaultEnvironment,
+  defaultGameSettings,
+  defaultLight,
+  defaultMaterial,
+  defaultMesh,
+  defaultMusic,
+  defaultPhysics,
+  defaultTransform,
+  defaultUI,
+} from './catalog';
 import type {
   AssetEntry,
   AssetType,
@@ -7,7 +18,9 @@ import type {
   EntityData,
   EntityKind,
   EnvironmentData,
+  GameSettings,
   LightType,
+  MusicData,
   MaterialPattern,
   MaterialPreset,
   PrimitiveShape,
@@ -15,6 +28,10 @@ import type {
   SceneData,
   SceneFile,
   SkyType,
+  UIAnchor,
+  UIButtonAction,
+  UIElementData,
+  UIType,
   Vec3,
   WeatherType,
 } from './types';
@@ -55,7 +72,57 @@ const SKIES: SkyType[] = ['color', 'gradient', 'physical'];
 const WEATHERS: WeatherType[] = ['none', 'rain', 'snow'];
 const ASSET_TYPES: AssetType[] = ['image', 'audio', 'model', 'font'];
 const LIGHTS: LightType[] = ['directional', 'point', 'spot', 'hemisphere', 'ambient'];
-const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light'];
+const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light', 'ui'];
+const UI_TYPES: UIType[] = ['text', 'button', 'image', 'bar'];
+const UI_ACTIONS: UIButtonAction[] = ['none', 'jump', 'action', 'pause', 'restart', 'title'];
+const UI_ANCHORS: UIAnchor[] = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'];
+
+function sanitizeUI(raw: unknown): UIElementData {
+  const u = isObj(raw) ? raw : {};
+  const type = oneOf(u.type, UI_TYPES, 'text');
+  const d = defaultUI(type);
+  return {
+    type,
+    anchor: oneOf(u.anchor, UI_ANCHORS, d.anchor),
+    x: num(u.x, d.x),
+    y: num(u.y, d.y),
+    width: Math.max(0, num(u.width, d.width)),
+    height: Math.max(0, num(u.height, d.height)),
+    text: str(u.text, d.text).slice(0, 500),
+    fontSize: Math.max(4, Math.min(200, num(u.fontSize, d.fontSize))),
+    color: color(u.color, d.color),
+    background: color(u.background, d.background),
+    backgroundOpacity: Math.max(0, Math.min(1, num(u.backgroundOpacity, d.backgroundOpacity))),
+    image: typeof u.image === 'string' ? u.image : null,
+    barValue: str(u.barValue, d.barValue),
+    barMax: Math.max(0, num(u.barMax, d.barMax)),
+    action: oneOf(u.action, UI_ACTIONS, d.action),
+    radius: Math.max(0, num(u.radius, d.radius)),
+  };
+}
+
+function sanitizeMusic(raw: unknown): MusicData {
+  const m = isObj(raw) ? raw : {};
+  const d = defaultMusic();
+  return { source: typeof m.source === 'string' && m.source ? m.source : null, volume: Math.max(0, Math.min(1, num(m.volume, d.volume))) };
+}
+
+function sanitizeGame(raw: unknown, name: string): GameSettings {
+  const g = isObj(raw) ? raw : {};
+  const d = defaultGameSettings(name);
+  return {
+    title: str(g.title, d.title).slice(0, 100),
+    subtitle: str(g.subtitle, d.subtitle).slice(0, 200),
+    titleBackground: color(g.titleBackground, d.titleBackground),
+    titleImage: typeof g.titleImage === 'string' ? g.titleImage : null,
+    icon: typeof g.icon === 'string' ? g.icon : null,
+    timeLimit: Math.max(0, num(g.timeLimit, d.timeLimit)),
+    timeUpResult: g.timeUpResult === 'clear' ? 'clear' : 'gameover',
+    showHud: bool(g.showHud, d.showHud),
+    clearMessage: str(g.clearMessage, d.clearMessage).slice(0, 200),
+    gameOverMessage: str(g.gameOverMessage, d.gameOverMessage).slice(0, 200),
+  };
+}
 
 function sanitizeEntity(raw: Obj, id: string): EntityData {
   const kind = KINDS.includes(raw.kind as EntityKind) ? (raw.kind as EntityKind) : 'empty';
@@ -119,6 +186,8 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
       penumbra: num(l.penumbra, d.penumbra),
       castShadow: bool(l.castShadow, d.castShadow),
     };
+  } else if (kind === 'ui') {
+    e.ui = sanitizeUI(raw.ui);
   } else if (kind === 'camera') {
     const c = isObj(raw.camera) ? raw.camera : {};
     const d = defaultCamera();
@@ -253,7 +322,12 @@ export function sanitizeScene(raw: unknown): SceneData {
         })
       : [],
     playerId: typeof raw.playerId === 'string' ? raw.playerId : null,
-    physics: { enabled: bool(phys.enabled, dphys.enabled), gravity: vec3(phys.gravity, dphys.gravity) },
+    physics: {
+      enabled: bool(phys.enabled, dphys.enabled),
+      gravity: vec3(phys.gravity, dphys.gravity),
+      autoColliders: bool(phys.autoColliders, dphys.autoColliders),
+    },
+    music: sanitizeMusic(raw.music),
   };
   repairHierarchy(scene);
   if (scene.playerId && !scene.entities[scene.playerId]) scene.playerId = null;
@@ -287,11 +361,12 @@ export function sanitizeProject(input: unknown): ProjectData {
   }
   const pickScene = (v: unknown) => (typeof v === 'string' && ids.has(v) ? v : scenes[0].id);
   const now = Date.now();
+  const name = str(raw.name, '無題のゲーム').slice(0, 100);
   return {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
     id: str(raw.id, createId('p')),
-    name: str(raw.name, '無題のゲーム').slice(0, 100),
+    name,
     createdAt: num(raw.createdAt, now),
     updatedAt: num(raw.updatedAt, now),
     scenes,
@@ -299,6 +374,7 @@ export function sanitizeProject(input: unknown): ProjectData {
     startSceneId: pickScene(raw.startSceneId),
     assets: sanitizeAssets(raw.assets),
     prefabs: Array.isArray(raw.prefabs) ? (clone(raw.prefabs) as ProjectData['prefabs']) : [],
+    game: sanitizeGame(raw.game, name),
   };
 }
 

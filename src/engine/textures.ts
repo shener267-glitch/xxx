@@ -20,6 +20,16 @@ export function setAssetResolver(fn: AssetResolver | null): void {
   resolver = fn;
 }
 
+/** アセットの Blob を取得する (音声・UI 画像など、テクスチャ以外からも使う) */
+export async function resolveAsset(assetId: string): Promise<Blob | null> {
+  if (!resolver) return null;
+  try {
+    return await resolver(assetId);
+  } catch {
+    return null;
+  }
+}
+
 /** テクスチャの読み込みが完了したとき (再描画が必要) に呼ばれる */
 export function onTextureLoaded(fn: () => void): () => void {
   listeners.add(fn);

@@ -78,6 +78,24 @@
 コンポーネントでエラーが起きた場合は、そのコンポーネントだけを停止し、
 「Play / オブジェクト名」の形でエラー発生箇所をログに残す (`core/logger.ts`)。
 
+### ゲームの仕組み (Phase 3)
+
+```
+GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物・変数・時間 (DOM 非依存・単体テスト対象)
+             ├─ AudioEngine   Web Audio。組み込みの効果音・音楽は合成、音声アセットはデコードして再生
+             ├─ GameUI        HUD・シーンの UI 要素・ジャンプ/アクションボタン・会話・各画面 (DOM)
+             ├─ RuntimeInput  ジョイスティック・視点・キーボード・ジャンプ/アクションの入力キュー
+             └─ PhysicsWorld  プレイヤー・敵には自動で「動く」ボディ、その他のメッシュは自動で固定の当たり判定
+```
+
+- HP・ダメージ・倒れたとき (スコア加算 / 残機を減らして復活 / ゲームオーバー) はランタイムが一元管理し、
+  コンポーネントは `runtime.damage()` などの API (`RuntimeAPI`) を呼ぶだけにしている
+- 「拾う・触れる」は見た目の箱 (Box3) の重なりで判定するため、物理 OFF のシーンでも動く
+- 会話・メニュー・タイトル・終了画面の表示中はゲームの進行 (時間・コンポーネント・物理) を止める (`frozen`)
+- ゲーム内の出来事は `runtime.emit(event, entityId)` で通知される (Phase 4 のイベントシステムの入口)
+- 「もう一度」「タイトルへ」はランタイムを作り直す (`PlayController.restart`)。セーブデータは `localStorage` の
+  `pocket-engine:save:<プロジェクトID>` に保存し、タイトル画面の「つづきから」で読み込む
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -114,9 +132,6 @@ registerComponent({
 
 | フェーズ | 追加場所 |
 | --- | --- |
-| マテリアル・環境 | `MaterialData.preset` / `EnvironmentData` の拡張、`SceneBuilder` の生成処理 |
-| 物理 | コンポーネント (Rigidbody / Collider / Trigger) + `GameRuntime` に物理ステップ |
-| プレイヤー・UI・音 | コンポーネント + ランタイム用 UI レイヤー (`RuntimeInput` のオーバーレイ) |
-| イベント | `SceneData` にイベント定義、ランタイムに条件評価器 |
+| イベント | `SceneData` にイベント定義、ランタイムに条件評価器 (`runtime.emit` / `eventListeners` を入口にする) |
 | アセット・Prefab | `ProjectData.assets / prefabs` と IndexedDB の `assets` ストア |
 | 書き出し | `runtime/` のみを含むプレイヤー用エントリーポイント + ZIP 生成 |

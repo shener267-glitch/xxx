@@ -95,7 +95,43 @@ export interface ComponentData {
   props: Record<string, unknown>;
 }
 
-export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light';
+export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light' | 'ui';
+
+export type UIType = 'text' | 'button' | 'image' | 'bar';
+export type UIAnchor = 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right';
+
+/** ボタンを押したときの組み込み動作 (Phase 4 のイベントでも「ボタンが押された」を使える) */
+export type UIButtonAction = 'none' | 'jump' | 'action' | 'pause' | 'restart' | 'title';
+
+/**
+ * ゲーム画面に重ねて表示する UI (文字・ボタン・画像・ゲージ)。
+ * 文字には {score} {money} {hp} {maxHp} {time} {timer} {var:名前} {item:名前} を埋め込める。
+ */
+export interface UIElementData {
+  type: UIType;
+  anchor: UIAnchor;
+  /** アンカーからのずれ (px) */
+  x: number;
+  y: number;
+  /** 幅・高さ (px)。0 は自動 */
+  width: number;
+  height: number;
+  text: string;
+  fontSize: number;
+  color: string;
+  background: string;
+  backgroundOpacity: number;
+  /** 画像のアセット ID */
+  image: string | null;
+  /** ゲージの値: 'hp' または 'var:変数名' */
+  barValue: string;
+  /** ゲージの最大値 (0 = 最大 HP) */
+  barMax: number;
+  /** ボタンの動作 */
+  action: UIButtonAction;
+  /** 角の丸み (px) */
+  radius: number;
+}
 
 export interface EntityData {
   id: string;
@@ -111,6 +147,7 @@ export interface EntityData {
   mesh?: MeshData;
   light?: LightData;
   camera?: CameraData;
+  ui?: UIElementData;
   components: ComponentData[];
   tags: string[];
 }
@@ -174,6 +211,33 @@ export interface EnvironmentData {
 export interface PhysicsSettings {
   enabled: boolean;
   gravity: Vec3;
+  /** プレイヤーがいるシーンでは、当たり判定の無いメッシュも固体として扱う */
+  autoColliders: boolean;
+}
+
+/** シーンの BGM。source は 'builtin:名前' またはアセット ID */
+export interface MusicData {
+  source: string | null;
+  volume: number;
+}
+
+/** ゲーム全体の設定 (タイトル画面・制限時間・終了画面など) */
+export interface GameSettings {
+  title: string;
+  subtitle: string;
+  /** タイトル画面の背景色 */
+  titleBackground: string;
+  /** タイトル画面の背景画像 (アセット ID) */
+  titleImage: string | null;
+  /** ゲームアイコン (アセット ID, Phase 10 の書き出しで使用) */
+  icon: string | null;
+  /** 制限時間 (秒, 0 = なし) */
+  timeLimit: number;
+  timeUpResult: 'gameover' | 'clear';
+  /** 標準の HUD (HP・スコア・お金・タイマー) を表示する */
+  showHud: boolean;
+  clearMessage: string;
+  gameOverMessage: string;
 }
 
 export interface SceneData {
@@ -189,6 +253,7 @@ export interface SceneData {
   /** 三人称カメラで追従・操作するエンティティ */
   playerId: string | null;
   physics: PhysicsSettings;
+  music: MusicData;
 }
 
 export type AssetType = 'image' | 'audio' | 'model' | 'font';
@@ -233,6 +298,7 @@ export interface ProjectData {
   startSceneId: string;
   assets: AssetEntry[];
   prefabs: PrefabEntry[];
+  game: GameSettings;
 }
 
 /** プロジェクト一覧用の軽量メタ情報 */

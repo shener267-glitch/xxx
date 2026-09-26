@@ -1,4 +1,4 @@
-import { createEntity, defaultEnvironment, defaultPhysics } from './catalog';
+import { createEntity, defaultEnvironment, defaultGameSettings, defaultMusic, defaultPhysics } from './catalog';
 import type { EntityData, ProjectData, SceneData } from './types';
 import { PROJECT_FORMAT, PROJECT_VERSION } from './types';
 import { createId } from './util';
@@ -15,6 +15,7 @@ export function createEmptyScene(name: string, withStarterContent = true): Scene
     bookmarks: [],
     playerId: null,
     physics: defaultPhysics(),
+    music: defaultMusic(),
   };
   if (!withStarterContent) return scene;
 
@@ -92,6 +93,7 @@ export function createProject(name = '新しいゲーム', sample = true): Proje
     startSceneId: scene.id,
     assets: [],
     prefabs: [],
+    game: defaultGameSettings(name),
   };
 }
 

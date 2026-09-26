@@ -452,6 +452,37 @@ export class TextField {
   }
 }
 
+/** 複数行のテキスト (セリフ・UI の文字など)。確定はフォーカスが外れたとき */
+export class TextArea {
+  readonly el: HTMLTextAreaElement;
+
+  constructor(opts: { title: string; placeholder?: string; testId?: string; maxLength?: number; rows?: number; onChange: (v: string) => void }) {
+    this.el = h('textarea', {
+      class: 'text-input textarea',
+      attrs: {
+        'aria-label': opts.title,
+        placeholder: opts.placeholder,
+        maxlength: opts.maxLength ?? 2000,
+        rows: opts.rows ?? 3,
+        'data-testid': opts.testId,
+      },
+    });
+    let committed = '';
+    this.el.addEventListener('focus', () => (committed = this.el.value));
+    this.el.addEventListener('change', () => {
+      if (this.el.value !== committed) {
+        committed = this.el.value;
+        opts.onChange(this.el.value);
+      }
+    });
+  }
+
+  set(v: string): void {
+    if (document.activeElement === this.el) return;
+    if (this.el.value !== v) this.el.value = v;
+  }
+}
+
 // ------------------------------------------------------------------
 // 色
 // ------------------------------------------------------------------

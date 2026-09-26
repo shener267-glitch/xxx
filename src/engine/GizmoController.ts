@@ -82,7 +82,7 @@ export class GizmoController {
     const model = this.editor.scene;
     return model.topLevel(this.editor.selection.ids).filter((id) => {
       const e = model.get(id);
-      return e && !e.locked && this.bridge.get(id);
+      return e && !e.locked && e.kind !== 'ui' && this.bridge.get(id);
     });
   }
 

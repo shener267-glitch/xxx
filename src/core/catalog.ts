@@ -1,5 +1,7 @@
+import { getComponentDef } from '../components/registry';
 import type {
   CameraData,
+  ComponentData,
   EntityData,
   EntityKind,
   EnvironmentData,
@@ -9,7 +11,11 @@ import type {
   MaterialPattern,
   MaterialPreset,
   MeshData,
+  MusicData,
+  GameSettings,
   PhysicsSettings,
+  UIElementData,
+  UIType,
   PrimitiveShape,
   TransformData,
 } from './types';
@@ -28,7 +34,21 @@ export type CreateKind =
   | 'light-hemisphere'
   | 'light-ambient'
   | 'water'
-  | 'empty';
+  | 'empty'
+  | 'ui-text'
+  | 'ui-score'
+  | 'ui-button'
+  | 'ui-image'
+  | 'ui-bar'
+  | 'game-player'
+  | 'game-coin'
+  | 'game-heal'
+  | 'game-key'
+  | 'game-enemy'
+  | 'game-npc'
+  | 'game-spike'
+  | 'game-savepoint'
+  | 'game-goal';
 
 export interface CatalogItem {
   kind: CreateKind;
@@ -39,7 +59,7 @@ export interface CatalogItem {
   /** 生成時のエンティティ名 */
   defaultName: string;
   icon: string;
-  category: 'shape' | 'camera' | 'light' | 'other';
+  category: 'shape' | 'camera' | 'light' | 'other' | 'game' | 'ui';
   description: string;
 }
 
@@ -58,6 +78,20 @@ export const CATALOG: CatalogItem[] = [
   { kind: 'light-hemisphere', label: '環境光 (空)', english: 'Hemisphere Light', defaultName: '環境光', icon: 'hemi', category: 'light', description: '空と地面の色で全体を照らす' },
   { kind: 'light-ambient', label: '環境光 (均一)', english: 'Ambient Light', defaultName: 'アンビエント', icon: 'ambient', category: 'light', description: '全体を均一に明るくする' },
   { kind: 'empty', label: '空オブジェクト', english: 'Empty', defaultName: '空オブジェクト', icon: 'empty', category: 'other', description: 'グループ化や目印に' },
+  { kind: 'game-player', label: 'プレイヤー', english: 'Player', defaultName: 'プレイヤー', icon: 'person', category: 'game', description: 'ジョイスティックで歩く・走る・ジャンプできるキャラクター' },
+  { kind: 'game-coin', label: 'コイン', english: 'Coin', defaultName: 'コイン', icon: 'coin', category: 'game', description: '触れるとお金が増える' },
+  { kind: 'game-heal', label: '回復アイテム', english: 'Heal', defaultName: '回復アイテム', icon: 'heart', category: 'game', description: '触れると HP が回復する' },
+  { kind: 'game-key', label: '鍵 (アイテム)', english: 'Item', defaultName: '鍵', icon: 'key', category: 'game', description: '拾うと持ち物に入る' },
+  { kind: 'game-enemy', label: '敵', english: 'Enemy', defaultName: '敵', icon: 'enemy', category: 'game', description: 'プレイヤーを追いかけてダメージを与える' },
+  { kind: 'game-npc', label: 'NPC (話す人)', english: 'NPC', defaultName: '村人', icon: 'chat', category: 'game', description: '近づいて話しかけるとメッセージを表示' },
+  { kind: 'game-spike', label: 'トゲ (ダメージ床)', english: 'Hazard', defaultName: 'トゲ', icon: 'cone', category: 'game', description: '触れるとダメージを受ける' },
+  { kind: 'game-savepoint', label: 'セーブポイント', english: 'Save Point', defaultName: 'セーブポイント', icon: 'flag', category: 'game', description: '触れると復活地点を記録' },
+  { kind: 'game-goal', label: 'ゴール', english: 'Goal', defaultName: 'ゴール', icon: 'trophy', category: 'game', description: '触れるとゲームクリア' },
+  { kind: 'ui-text', label: '文字', english: 'Text', defaultName: '文字', icon: 'font', category: 'ui', description: '画面に文字を表示' },
+  { kind: 'ui-score', label: 'スコア表示', english: 'Score', defaultName: 'スコア表示', icon: 'trophy', category: 'ui', description: '「スコア: 10」のように表示' },
+  { kind: 'ui-button', label: 'ボタン', english: 'Button', defaultName: 'ボタン', icon: 'pointer', category: 'ui', description: '押すとイベントを実行' },
+  { kind: 'ui-image', label: '画像', english: 'Image', defaultName: '画像', icon: 'image', category: 'ui', description: '画面に画像を表示' },
+  { kind: 'ui-bar', label: 'ゲージ (HPバー)', english: 'Bar', defaultName: 'HPバー', icon: 'sliders', category: 'ui', description: 'HP などの量をバーで表示' },
 ];
 
 export function catalogItem(kind: CreateKind): CatalogItem {
@@ -88,11 +122,21 @@ export const KIND_LABELS: Record<EntityKind, string> = {
   mesh: 'メッシュ',
   camera: 'カメラ',
   light: 'ライト',
+  ui: 'UI',
+};
+
+export const UI_LABELS: Record<UIType, string> = {
+  text: '文字 (UI)',
+  button: 'ボタン (UI)',
+  image: '画像 (UI)',
+  bar: 'ゲージ (UI)',
 };
 
 /** エンティティの見た目に合うアイコン名 */
 export function entityIcon(e: EntityData): string {
   switch (e.kind) {
+    case 'ui':
+      return e.ui?.type === 'button' ? 'pointer' : e.ui?.type === 'image' ? 'image' : e.ui?.type === 'bar' ? 'sliders' : 'font';
     case 'mesh':
       return e.mesh?.shape ?? 'cube';
     case 'camera':
@@ -120,6 +164,7 @@ export function entityTypeLabel(e: EntityData): string {
   if (e.kind === 'mesh' && e.mesh) return `${SHAPE_LABELS[e.mesh.shape]} (メッシュ)`;
   if (e.kind === 'light' && e.light) return LIGHT_LABELS[e.light.type];
   if (e.kind === 'empty' && e.children.length > 0) return 'グループ';
+  if (e.kind === 'ui' && e.ui) return UI_LABELS[e.ui.type];
   return KIND_LABELS[e.kind];
 }
 
@@ -189,7 +234,63 @@ export function defaultEnvironment(sky: 'color' | 'gradient' = 'gradient'): Envi
 }
 
 export function defaultPhysics(): PhysicsSettings {
-  return { enabled: true, gravity: [0, -9.81, 0] };
+  return { enabled: true, gravity: [0, -9.81, 0], autoColliders: true };
+}
+
+export function defaultMusic(): MusicData {
+  return { source: null, volume: 0.6 };
+}
+
+export function defaultGameSettings(title = '新しいゲーム'): GameSettings {
+  return {
+    title,
+    subtitle: 'タップしてスタート',
+    titleBackground: '#1b2a4a',
+    titleImage: null,
+    icon: null,
+    timeLimit: 0,
+    timeUpResult: 'gameover',
+    showHud: true,
+    clearMessage: 'ゲームクリア！',
+    gameOverMessage: 'ゲームオーバー',
+  };
+}
+
+export function defaultUI(type: UIType): UIElementData {
+  const base: UIElementData = {
+    type,
+    anchor: 'top-left',
+    x: 16,
+    y: 16,
+    width: 0,
+    height: 0,
+    text: '',
+    fontSize: 20,
+    color: '#ffffff',
+    background: '#000000',
+    backgroundOpacity: 0,
+    image: null,
+    barValue: 'hp',
+    barMax: 0,
+    action: 'none',
+    radius: 10,
+  };
+  switch (type) {
+    case 'text':
+      return { ...base, anchor: 'top', y: 70, text: 'テキスト' };
+    case 'button':
+      return { ...base, anchor: 'bottom-right', x: 20, y: 150, width: 120, height: 52, text: 'ボタン', fontSize: 18, background: '#3d8bff', backgroundOpacity: 0.9, radius: 14 };
+    case 'image':
+      return { ...base, anchor: 'top-right', x: 16, y: 70, width: 96, height: 96, radius: 8 };
+    case 'bar':
+      return { ...base, anchor: 'top-left', x: 16, y: 70, width: 160, height: 14, color: '#3fd584', background: '#000000', backgroundOpacity: 0.45, radius: 7 };
+  }
+}
+
+/** コンポーネントを既定値 + 上書きで作る (登録済みの定義を使う) */
+export function makeComponent(type: string, props: Record<string, unknown> = {}): ComponentData {
+  const def = getComponentDef(type);
+  return { id: createId('c'), type, enabled: true, props: { ...(def ? def.defaults() : {}), ...props } };
 }
 
 export function defaultMesh(shape: PrimitiveShape, color?: string): MeshData {
@@ -319,5 +420,101 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       return base;
     case 'empty':
       return base;
+    case 'ui-text':
+    case 'ui-score':
+    case 'ui-button':
+    case 'ui-image':
+    case 'ui-bar': {
+      const type = kind.slice(3) === 'score' ? 'text' : (kind.slice(3) as UIType);
+      base.kind = 'ui';
+      base.ui = defaultUI(type);
+      if (kind === 'ui-score') {
+        base.ui = { ...base.ui, anchor: 'top-right', x: 16, y: 16, text: 'スコア: {score}', fontSize: 22, background: '#000000', backgroundOpacity: 0.35 };
+      }
+      return base;
+    }
+    case 'game-player': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('capsule', '#4c8dff');
+      base.transform.position = [0, 1, 0];
+      base.transform.scale = [0.8, 0.8, 0.8];
+      base.components.push(makeComponent('player'), makeComponent('health', { maxHp: 100 }));
+      base.tags.push('player');
+      return base;
+    }
+    case 'game-coin': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cylinder', '#ffc233');
+      Object.assign(base.mesh.material, { metalness: 0.8, roughness: 0.3 });
+      base.transform.position = [0, 1, 0];
+      base.transform.rotation = [90, 0, 0];
+      base.transform.scale = [0.7, 0.12, 0.7];
+      base.components.push(makeComponent('item', { kind: 'coin', value: 1 }));
+      return base;
+    }
+    case 'game-heal': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('sphere', '#ff5c8a');
+      base.mesh.material.emissive = '#ff2d6f';
+      base.mesh.material.emissiveIntensity = 0.4;
+      base.transform.position = [0, 1, 0];
+      base.transform.scale = [0.5, 0.5, 0.5];
+      base.components.push(makeComponent('item', { kind: 'heal', value: 30 }));
+      return base;
+    }
+    case 'game-key': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cube', '#ffd666');
+      Object.assign(base.mesh.material, { metalness: 0.9, roughness: 0.25 });
+      base.transform.position = [0, 1, 0];
+      base.transform.scale = [0.25, 0.6, 0.12];
+      base.components.push(makeComponent('item', { kind: 'item', itemName: '鍵', value: 1 }));
+      return base;
+    }
+    case 'game-enemy': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cube', '#e5484d');
+      base.transform.position = [0, 0.5, 0];
+      base.transform.scale = [0.9, 0.9, 0.9];
+      base.components.push(makeComponent('enemy'), makeComponent('health', { maxHp: 30 }));
+      base.tags.push('enemy');
+      return base;
+    }
+    case 'game-npc': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('capsule', '#3ecf8e');
+      base.transform.position = [0, 1, 0];
+      base.transform.scale = [0.8, 0.8, 0.8];
+      base.components.push(makeComponent('npc'));
+      return base;
+    }
+    case 'game-spike': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cone', '#8a9099');
+      Object.assign(base.mesh.material, { metalness: 0.7, roughness: 0.35 });
+      base.transform.position = [0, 0.5, 0];
+      base.components.push(makeComponent('damage', { amount: 20 }));
+      return base;
+    }
+    case 'game-savepoint': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cylinder', '#40a9ff');
+      base.mesh.material.emissive = '#1d6fd6';
+      base.mesh.material.emissiveIntensity = 0.5;
+      base.transform.position = [0, 0.05, 0];
+      base.transform.scale = [1.4, 0.1, 1.4];
+      base.components.push(makeComponent('savepoint'));
+      return base;
+    }
+    case 'game-goal': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cylinder', '#ffd666');
+      base.mesh.material.emissive = '#ffb020';
+      base.mesh.material.emissiveIntensity = 0.6;
+      base.transform.position = [0, 1.5, 0];
+      base.transform.scale = [0.3, 3, 0.3];
+      base.components.push(makeComponent('goal'));
+      return base;
+    }
   }
 }

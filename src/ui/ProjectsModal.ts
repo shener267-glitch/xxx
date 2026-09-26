@@ -1,5 +1,6 @@
 import { logger } from '../core/logger';
 import type { ProjectMeta } from '../core/types';
+import { TEMPLATES } from '../core/templates';
 import type { AppContext } from './context';
 import { button, clear, h } from './dom';
 import { icon } from './icons';
@@ -36,6 +37,32 @@ export function openProjectsModal(ctx: AppContext): void {
           modal.close();
           await ctx.projects.createNew(name.trim() || '新しいゲーム');
           toast(`「${name}」を作成しました`, 'success');
+        },
+      }),
+      button({
+        icon: 'gamepad',
+        label: 'テンプレートから作成',
+        class: 'secondary',
+        testId: 'project-template',
+        onClick: () => {
+          actionSheet(
+            'テンプレートを選ぶ',
+            TEMPLATES.map((t) => ({
+              label: t.label,
+              hint: t.description,
+              icon: t.icon,
+              testId: `template-${t.id}`,
+              onSelect: () => {
+                void (async () => {
+                  const name = await promptDialog('新しいプロジェクト', t.defaultName, { okLabel: '作成' });
+                  if (!name) return;
+                  modal.close();
+                  await ctx.projects.createFromTemplate(t.id, name.trim() || t.defaultName);
+                  toast(`「${name}」を作成しました。Play で遊べます`, 'success', 2500);
+                })();
+              },
+            })),
+          );
         },
       }),
       button({

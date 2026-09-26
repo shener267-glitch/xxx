@@ -1,0 +1,569 @@
+/* ==========================================================================
+   ゲーム画面の UI (Play 中・書き出したゲーム共通)
+   ========================================================================== */
+
+.game-ui {
+  --g-top: 0px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font, system-ui, sans-serif);
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+.game-ui [data-interactive] {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.game-ui [hidden] {
+  display: none !important;
+}
+
+/* ---------- HUD ---------- */
+
+.g-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--g-top) + var(--safe-top, 0px));
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.g-hud-left,
+.g-hud-right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.g-hud-left {
+  align-items: flex-start;
+}
+
+.g-hud-right {
+  align-items: flex-end;
+}
+
+.g-chip {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.g-score {
+  color: #ffe38a;
+}
+
+.g-money {
+  color: #ffd166;
+}
+
+.g-timer {
+  font-variant-numeric: tabular-nums;
+}
+
+.g-timer.low {
+  color: #ff7a7a;
+  animation: g-pulse 0.8s ease-in-out infinite;
+}
+
+.g-lives {
+  font-size: 13px;
+}
+
+.g-hp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.g-heart {
+  color: #ff5c7a;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.g-hp-bar {
+  width: 110px;
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.g-hp-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #36d17d, #7ff0a8);
+  transition: width 0.2s;
+}
+
+.g-hp-fill.low {
+  background: linear-gradient(90deg, #ff4d4d, #ff8f6b);
+}
+
+.g-hp-text {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+}
+
+.g-inv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 60vw;
+}
+
+.g-inv-item {
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 214, 102, 0.22);
+  border: 1px solid rgba(255, 214, 102, 0.5);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ---------- シーンに置いた UI ---------- */
+
+.g-custom {
+  position: absolute;
+  inset: 0;
+}
+
+.g-ui {
+  position: absolute;
+  box-sizing: border-box;
+  line-height: 1.25;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+
+.g-ui-text {
+  max-width: calc(100% - 16px);
+}
+
+.g-ui-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: none;
+  font: inherit;
+  font-weight: 800;
+  color: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.g-ui-button:active {
+  filter: brightness(1.25);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+.g-ui-image {
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.g-ui-bar {
+  min-height: 6px;
+}
+
+.g-ui-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  transition: width 0.2s;
+}
+
+/* ---------- ジャンプ / アクションボタン ---------- */
+
+.g-controls {
+  position: absolute;
+  right: calc(16px + var(--safe-right, 0px));
+  bottom: calc(28px + var(--safe-bottom, 0px));
+  width: 170px;
+  height: 150px;
+}
+
+.g-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(20, 24, 32, 0.5);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.g-btn:active {
+  transform: scale(0.92);
+  background: rgba(61, 139, 255, 0.55);
+}
+
+.g-jump {
+  right: 0;
+  bottom: 0;
+  width: 84px;
+  height: 84px;
+  background: rgba(61, 139, 255, 0.45);
+}
+
+.g-action {
+  left: 0;
+  top: 0;
+  width: 70px;
+  height: 70px;
+  font-size: 15px;
+  background: rgba(239, 79, 79, 0.45);
+}
+
+.g-action.talk {
+  background: rgba(47, 191, 113, 0.55);
+}
+
+.g-pause {
+  top: calc(10px + var(--safe-top, 0px));
+  right: calc(10px + var(--safe-right, 0px));
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.game-ui:has(.g-pause) .g-hud-right {
+  margin-right: 50px;
+}
+
+/* ---------- お知らせ ---------- */
+
+.g-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--g-top) + 58px + var(--safe-top, 0px));
+  transform: translate(-50%, -8px);
+  max-width: calc(100% - 40px);
+  padding: 8px 16px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.66);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+}
+
+.g-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ---------- 会話 ---------- */
+
+.g-dialog {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(18px + var(--safe-bottom, 0px));
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
+  background: rgba(12, 16, 26, 0.88);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  animation: g-rise 0.18s ease-out;
+}
+
+.g-dialog-name {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: #3d8bff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.g-dialog-text {
+  min-height: 48px;
+  font-size: 17px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.g-dialog-next {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  animation: g-pulse 1.2s ease-in-out infinite;
+}
+
+/* ---------- 画面 (タイトル・一時停止・設定・終了) ---------- */
+
+.g-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--g-top) + 16px + var(--safe-top, 0px)) 20px calc(20px + var(--safe-bottom, 0px));
+  background: rgba(6, 8, 14, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 0.2s;
+  overflow-y: auto;
+}
+
+.g-screen.open {
+  opacity: 1;
+}
+
+.g-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+}
+
+.g-title-screen .g-card {
+  max-width: 380px;
+}
+
+.g-title-image {
+  display: none;
+  height: 150px;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.g-title-image.has {
+  display: block;
+}
+
+.g-title {
+  margin: 0;
+  font-size: clamp(30px, 9vw, 46px);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.35),
+    0 8px 24px rgba(0, 0, 0, 0.45);
+  word-break: break-word;
+}
+
+.g-subtitle {
+  margin: 0 0 18px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.8);
+  animation: g-pulse 1.8s ease-in-out infinite;
+}
+
+.g-screen-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.g-end-title {
+  margin: 0 0 6px;
+  font-size: clamp(28px, 8vw, 40px);
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.g-end-screen.clear .g-end-title {
+  color: #ffe38a;
+  text-shadow: 0 0 24px rgba(255, 214, 102, 0.6);
+}
+
+.g-end-screen.clear {
+  background: rgba(20, 30, 10, 0.55);
+}
+
+.g-end-screen .g-card {
+  animation: g-rise 0.35s ease-out;
+}
+
+.g-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.g-stats > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+}
+
+.g-stats b {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-menu-btn {
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.g-menu-btn.primary {
+  background: linear-gradient(180deg, #4f97ff, #2f75e6);
+  border-color: transparent;
+  box-shadow: 0 6px 20px rgba(61, 139, 255, 0.4);
+}
+
+.g-menu-btn:active {
+  transform: scale(0.97);
+}
+
+.g-slider {
+  display: grid;
+  grid-template-columns: 92px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.g-slider input {
+  width: 100%;
+  accent-color: #3d8bff;
+}
+
+.g-slider-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.g-help {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.g-help > div:first-child {
+  font-weight: 800;
+  font-size: 13px;
+}
+
+@keyframes g-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes g-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-subtitle,
+  .g-timer.low,
+  .g-dialog-next {
+    animation: none;
+  }
+}
+
+/* ---------- エディタ上のプレビュー ---------- */
+
+.ui-preview {
+  z-index: 4;
+}
+
+.app.playing .ui-preview {
+  display: none;
+}
+
+.ui-preview .g-ui {
+  opacity: 0.92;
+}
+
+.ui-preview .g-ui.selected {
+  outline: 2px dashed #6aa8ff;
+  outline-offset: 3px;
+}
+
+.ui-preview .g-ui-image.empty,
+.ui-preview .g-ui-text.empty {
+  min-width: 48px;
+  min-height: 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.55);
+  background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.08) 0 6px, transparent 6px 12px);
+}
+
+.game-ui.busy .g-controls,
+.game-ui.busy .g-custom [data-interactive] {
+  visibility: hidden;
+}

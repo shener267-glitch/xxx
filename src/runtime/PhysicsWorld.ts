@@ -2,7 +2,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type * as CANNON from 'cannon-es';
 import type { EntityData, PhysicsSettings, Vec3 } from '../core/types';
-import type { BodyType, ColliderShape } from '../engine/colliderShapes';
+import type { BodySpec, BodyType, ColliderShape } from '../engine/colliderShapes';
 import { computeColliderShape, readCollider, readRigidbody } from '../engine/colliderShapes';
 
 /**
@@ -112,11 +112,14 @@ export class PhysicsWorld {
     }
   }
 
-  /** エンティティに物理ボディを作る。物理コンポーネントが無ければ何もしない */
-  addEntity(e: EntityData, object: Object3D): PhysicsBody | null {
-    const rb = readRigidbody(e.components.find((c) => c.type === 'rigidbody'));
-    const col = readCollider(e.components.find((c) => c.type === 'collider'));
-    if (!rb && !col) return null;
+  /**
+   * エンティティに物理ボディを作る。
+   * spec を省略した場合は Rigidbody / Collider コンポーネントから決める (無ければ何もしない)
+   */
+  addEntity(e: EntityData, object: Object3D, spec?: BodySpec): PhysicsBody | null {
+    const rb = spec ? spec.rb : readRigidbody(e.components.find((c) => c.type === 'rigidbody'));
+    const col = spec ? spec.collider : readCollider(e.components.find((c) => c.type === 'collider'));
+    if (!spec && !rb && !col) return null;
     const C = this.C;
     object.updateWorldMatrix(true, false);
     object.matrixWorld.decompose(_pos, _quat, _scale);
@@ -239,6 +242,52 @@ export class PhysicsWorld {
     info.body.velocity.set(0, 0, 0);
     info.body.angularVelocity.set(0, 0, 0);
     info.body.wakeUp();
+    // 次の物理ステップを待たずにオブジェクトも動かす (同じフレームの判定で古い位置を使わないように)
+    const obj = info.object;
+    _pos.set(pos[0], pos[1], pos[2]);
+    if (obj.parent) {
+      obj.parent.updateWorldMatrix(true, false);
+      _pos.applyMatrix4(_m.copy(obj.parent.matrixWorld).invert());
+    }
+    obj.position.copy(_pos);
+    obj.updateMatrixWorld();
+    info.lastMatrix.copy(obj.matrixWorld);
+  }
+
+  /** 向きを直接設定する (回転を固定したキャラクターの向き変更用) */
+  setRotation(id: string, q: [number, number, number, number]): void {
+    const b = this.bodies.get(id)?.body;
+    if (!b) return;
+    b.quaternion.set(q[0], q[1], q[2], q[3]);
+  }
+
+  /**
+   * 足元が何かに着いているか。
+   * ボディの底から少し下まで、中心と周囲 4 点から下向きに光線を飛ばして調べる。
+   */
+  isGrounded(id: string): boolean {
+    const info = this.bodies.get(id);
+    if (!info || info.type !== 'dynamic') return false;
+    const b = info.body;
+    if (b.velocity.y > 1.5) return false;
+    b.updateAABB();
+    const lo = b.aabb.lowerBound;
+    const hi = b.aabb.upperBound;
+    const r = Math.min(hi.x - lo.x, hi.z - lo.z) * 0.3;
+    const cy = (lo.y + hi.y) / 2;
+    const bottom = lo.y - 0.12;
+    const px = b.position.x;
+    const pz = b.position.z;
+    for (const [ox, oz] of [
+      [0, 0],
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ]) {
+      if (this.raycast([px + ox, cy, pz + oz], [px + ox, bottom, pz + oz], id)) return true;
+    }
+    return false;
   }
 
   /** 線分と最初に当たったボディのエンティティ ID (自分自身は除外) */

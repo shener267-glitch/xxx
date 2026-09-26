@@ -23,12 +23,14 @@ const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
   camera: 'カメラ',
   light: 'ライト',
   other: 'その他',
+  game: 'ゲーム用オブジェクト',
+  ui: '画面 UI (文字・ボタン・画像)',
 };
 
 /** カタログのカード一覧 (追加シートと Assets 画面で共用) */
 export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'add'): HTMLElement {
   const root = h('div', { class: 'catalog' });
-  for (const cat of ['shape', 'light', 'camera', 'other'] as const) {
+  for (const cat of ['shape', 'game', 'ui', 'light', 'camera', 'other'] as const) {
     const items = CATALOG.filter((c) => c.category === cat);
     root.appendChild(h('div', { class: 'catalog-title', text: CATEGORY_LABELS[cat] }));
     root.appendChild(

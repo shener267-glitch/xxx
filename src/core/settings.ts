@@ -23,6 +23,8 @@ export interface EditorSettings {
   showHints: boolean;
   /** エディタでも水の動き・天候をアニメーション表示する (電池を多く使う) */
   previewEffects: boolean;
+  /** Play をタイトル画面から始める */
+  playFromTitle: boolean;
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   playKeepChanges: false,
   showHints: true,
   previewEffects: false,
+  playFromTitle: false,
 };
 
 const KEY = 'pocket-engine:settings';

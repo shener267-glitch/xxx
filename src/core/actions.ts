@@ -15,7 +15,7 @@ import type { Editor } from './Editor';
 import { createEmptyScene } from './project';
 import type { SceneModel } from './SceneModel';
 import { matrixToTransform } from './transformMath';
-import type { EntityData, EnvironmentData, MaterialPreset, PhysicsSettings, SceneData, TransformData, Vec3 } from './types';
+import type { EntityData, EnvironmentData, GameSettings, MaterialPreset, MusicData, PhysicsSettings, SceneData, TransformData, Vec3 } from './types';
 import { clone, createId, setPath, uniqueName } from './util';
 
 /**
@@ -448,6 +448,31 @@ export function setPhysicsSettings(editor: Editor, patch: Partial<PhysicsSetting
     editor.events.emit('environment-changed', undefined);
   };
   const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `phys:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+export function setMusic(editor: Editor, patch: Partial<MusicData>, label = 'BGM を変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.music);
+  const after = { ...clone(scene.music), ...clone(patch) };
+  const apply = (v: MusicData) => {
+    scene.music = v;
+    editor.events.emit('environment-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `music:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** ゲーム全体の設定 (タイトル・制限時間など) を変更する */
+export function setGameSettings(editor: Editor, patch: Partial<GameSettings>, label = 'ゲーム設定を変更', mergeKey?: string): boolean {
+  const project = editor.project;
+  const before = clone(project.game);
+  const after = { ...clone(project.game), ...clone(patch) };
+  const apply = (v: GameSettings) => {
+    project.game = v;
+    editor.events.emit('project-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `game:${mergeKey}` : null);
   return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
 }
 

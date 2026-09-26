@@ -3,6 +3,8 @@ import type { AssetService } from './AssetService';
 import type { Editor } from '../core/Editor';
 import { logger } from '../core/logger';
 import { createProject } from '../core/project';
+import type { TemplateId } from '../core/templates';
+import { createProjectFromTemplate } from '../core/templates';
 import { parseProjectJson, parseSceneJson, sceneToFile } from '../core/serialization';
 import type { ProjectData, ProjectMeta } from '../core/types';
 import { clone, createId, debounce } from '../core/util';
@@ -123,6 +125,14 @@ export class ProjectService {
   async createNew(name: string, sample = true): Promise<void> {
     if (this.editor.dirty) await this.save({ silent: true });
     const p = createProject(name, sample);
+    this.editor.loadProject(p);
+    await this.save({ silent: true });
+  }
+
+  /** テンプレート (遊べるゲームの見本) から新しいプロジェクトを作る */
+  async createFromTemplate(template: TemplateId, name: string): Promise<void> {
+    if (this.editor.dirty) await this.save({ silent: true });
+    const p = createProjectFromTemplate(template, name);
     this.editor.loadProject(p);
     await this.save({ silent: true });
   }

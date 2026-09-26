@@ -82,7 +82,7 @@ describe('Phase 2 の後方互換', () => {
     expect(s.environment.sky.type).toBe('color');
     expect(s.environment.background).toBe('#123456');
     expect(s.environment.fog.enabled).toBe(false);
-    expect(s.physics).toEqual({ enabled: true, gravity: [0, -9.81, 0] });
+    expect(s.physics).toEqual({ enabled: true, gravity: [0, -9.81, 0], autoColliders: true });
     const mesh = Object.values(s.entities).find((e) => e.mesh)!;
     expect(mesh.mesh!.material).toMatchObject({ pattern: 'none', texture: null, uvScale: [1, 1], uvOffset: [0, 0], uvRotation: 0, envIntensity: 1 });
   });

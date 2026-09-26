@@ -64,6 +64,51 @@ export function hasPhysics(e: EntityData): boolean {
   return e.components.some((c) => c.enabled && (c.type === 'rigidbody' || c.type === 'collider'));
 }
 
+/** 物理ボディの設定 (rb = null なら動かない固体) */
+export interface BodySpec {
+  rb: RigidbodyProps | null;
+  collider: ColliderProps | null;
+}
+
+const hasComp = (e: EntityData, type: string) => e.components.some((c) => c.enabled && c.type === type);
+
+/** 拾う・触れるだけのゲーム用オブジェクト (固体にしない) */
+const PASS_THROUGH = ['item', 'savepoint', 'goal'];
+
+/**
+ * エンティティの物理ボディを決める。
+ * 1. Rigidbody / Collider が付いていればその設定
+ * 2. プレイヤー・敵は自動で「動く」ボディ (回転固定・摩擦なし)、NPC は固定
+ * 3. autoColliders (プレイヤーがいるシーン) では、その他のメッシュも固定の当たり判定にする
+ */
+export function resolveBodySpec(e: EntityData, opts: { autoColliders: boolean }): BodySpec | null {
+  if (hasPhysics(e)) {
+    return {
+      rb: readRigidbody(e.components.find((c) => c.type === 'rigidbody')),
+      collider: readCollider(e.components.find((c) => c.type === 'collider')),
+    };
+  }
+  if (hasComp(e, 'player')) {
+    return {
+      rb: { type: 'dynamic', mass: 1, friction: 0, bounciness: 0, linearDamping: 0, lockRotation: true, useGravity: true },
+      collider: null,
+    };
+  }
+  if (hasComp(e, 'enemy')) {
+    return {
+      rb: { type: 'dynamic', mass: 2, friction: 0, bounciness: 0, linearDamping: 0.1, lockRotation: true, useGravity: true },
+      collider: null,
+    };
+  }
+  if (hasComp(e, 'npc')) return { rb: null, collider: null };
+  // 条件付きのゴール (鍵が必要な扉など) は、条件を満たすまで通れない固体にする
+  const goal = e.components.find((c) => c.enabled && c.type === 'goal');
+  if (goal && (String(goal.props.requireItem ?? '').trim() !== '' || Number(goal.props.requireScore) > 0)) return { rb: null, collider: null };
+  if (PASS_THROUGH.some((t) => hasComp(e, t))) return null;
+  if (opts.autoColliders && e.kind === 'mesh' && e.mesh && e.mesh.material.preset !== 'water') return { rb: null, collider: null };
+  return null;
+}
+
 /**
  * エンティティとワールドでの拡大率から形状を計算する。
  * 基本図形は 1m (半径 0.5m) を基準に作られているので、その大きさに合わせる。

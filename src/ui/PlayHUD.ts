@@ -30,10 +30,7 @@ export class PlayHUD {
       class: 'hud-btn',
       testId: 'play-pause',
       onClick: () => {
-        const paused = play.togglePause();
-        setIcon(this.pauseBtn, paused ? 'play' : 'pause');
-        this.pauseBtn.title = paused ? '再開' : '一時停止';
-        this.el.classList.toggle('paused', paused);
+        play.togglePause();
       },
     });
     const seg = h('div', { class: 'segmented hud-modes' });
@@ -79,6 +76,11 @@ export class PlayHUD {
       onStats: (s) => this.showStats(s),
       onMessage: (m, level) => toast(m, level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info', 3500),
       onCameraMode: (mode) => this.setMode(mode),
+      onPause: (paused) => {
+        setIcon(this.pauseBtn, paused ? 'play' : 'pause');
+        this.pauseBtn.title = paused ? '再開' : '一時停止';
+        this.el.classList.toggle('paused', paused);
+      },
     });
   }
 

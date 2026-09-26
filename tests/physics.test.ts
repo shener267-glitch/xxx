@@ -40,7 +40,7 @@ describe('コライダー形状', () => {
 });
 
 describe('物理演算', () => {
-  const settings = { enabled: true, gravity: [0, -9.81, 0] as [number, number, number] };
+  const settings = { enabled: true, gravity: [0, -9.81, 0] as [number, number, number], autoColliders: false };
 
   function setup() {
     const ground = withComponent(createEntity('cube', '床'), 'collider', {});
@@ -96,7 +96,7 @@ describe('物理演算', () => {
   });
 
   it('重力の向きを変えられる', async () => {
-    const world = await PhysicsWorld.create({ enabled: true, gravity: [0, 9.81, 0] });
+    const world = await PhysicsWorld.create({ enabled: true, gravity: [0, 9.81, 0], autoColliders: false });
     const { box } = setup();
     const bObj = objectFor(box);
     world.addEntity(box, bObj);

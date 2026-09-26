@@ -375,7 +375,7 @@ export class ViewportInput {
     const model = ed.scene;
     const selected = ed.selection.ids.find((id) => model.isAncestorOrSelf(id, picked));
     if (!selected) return false;
-    const ids = model.topLevel(ed.selection.ids).filter((id) => !model.get(id)?.locked);
+    const ids = model.topLevel(ed.selection.ids).filter((id) => !model.get(id)?.locked && model.get(id)?.kind !== 'ui');
     if (ids.length === 0) return false;
     const pickedObj = this.bridge.get(selected);
     if (!pickedObj) return false;
