@@ -200,8 +200,20 @@ export async function emptyGroundPoint(page: Page): Promise<Pt> {
   return p as Pt;
 }
 
-/** 3D ビュー内の「何もない」点 (空の部分) */
+/** 3D ビュー内の「何もない」点 (UI に覆われておらず、オブジェクトも無い上側の空間) */
 export async function emptyPoint(page: Page): Promise<Pt> {
-  const box = (await page.getByTestId('viewport').boundingBox())!;
-  return { x: box.x + box.width * 0.25, y: box.y + 40 };
+  const p = await evalApp(page, (app) => {
+    const canvas = app.engine.canvas;
+    const r = canvas.getBoundingClientRect();
+    for (let fy = 0.12; fy <= 0.5; fy += 0.04) {
+      for (const fx of [0.3, 0.45, 0.2, 0.6, 0.12]) {
+        const x = r.left + r.width * fx;
+        const y = r.top + r.height * fy;
+        if (document.elementFromPoint(x, y) === canvas && !app.viewport.pick(x, y)) return { x, y };
+      }
+    }
+    return null;
+  });
+  if (!p) throw new Error('empty point not found');
+  return p as Pt;
 }

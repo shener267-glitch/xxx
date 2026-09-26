@@ -76,6 +76,7 @@ export class EngineRenderer {
 
   /** 画質に応じて解像度 (ピクセル比) を切り替える。スマホでは描画負荷に直結する */
   setQuality(q: QualityLevel): void {
+    if (this.quality === q) return;
     this.quality = q;
     this.applyPixelRatio();
     for (const fn of this.listeners) fn(this.width, this.height);
@@ -89,6 +90,7 @@ export class EngineRenderer {
   }
 
   setShadows(on: boolean): void {
+    if (this.renderer.shadowMap.enabled === on) return;
     this.renderer.shadowMap.enabled = on;
     this.renderer.shadowMap.needsUpdate = true;
   }

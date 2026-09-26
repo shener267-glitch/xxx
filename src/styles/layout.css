@@ -370,8 +370,29 @@
 @media (orientation: landscape) and (max-height: 540px) {
   :root {
     --topbar-h: 46px;
-    --toolbar-h: 54px;
-    --tabbar-h: 48px;
+    --toolbar-h: 56px;
+    --tabbar-h: 56px;
+  }
+  /* 横画面のスマホでは縦の余裕が無いため、ツールバーとタブバーを1行に並べて 3D ビューを広く取る */
+  .app {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto;
+  }
+  .topbar,
+  .main {
+    grid-column: 1 / -1;
+  }
+  .toolbar {
+    grid-row: 3;
+    grid-column: 1;
+    padding-bottom: var(--safe-bottom);
+    height: calc(var(--toolbar-h) + var(--safe-bottom));
+  }
+  .tabbar {
+    grid-row: 3;
+    grid-column: 2;
+    border-left: 1px solid var(--border);
   }
   .tab {
     flex-direction: row;
@@ -430,9 +451,12 @@
   left: 8px;
 }
 
+/* 横画面・PC では縦方向に余裕が無いため、ボタン列を軸ギズモの横に横並びにする */
 .layout-side .rail {
+  top: 22px;
   right: auto;
-  left: 8px;
+  left: 94px;
+  flex-direction: row;
 }
 
 .rail-btn {
@@ -499,9 +523,10 @@
   pointer-events: none;
 }
 
+/* 右側のパネルを除いた空き領域の中央に置く */
 .layout-side[data-sheet='half'] .context-bar,
 .layout-side[data-sheet='full'] .context-bar {
-  left: calc(50% - min(195px, 24vw));
+  left: calc((100% - min(390px, 48vw) - 16px) / 2);
 }
 
 .ctx-chip {
@@ -603,7 +628,8 @@
 }
 
 .vp-hint.hidden,
-.vp-hint.faded {
+.vp-hint.faded,
+.app:not([data-sheet='closed']) .vp-hint {
   opacity: 0;
 }
 
@@ -778,4 +804,13 @@
   .play-btn:hover {
     background: var(--green-2);
   }
+}
+
+.layout-side .multi-banner {
+  top: 76px;
+  transform: translate(-50%, -150px);
+}
+
+.layout-side .multi-banner.show {
+  transform: translate(-50%, 0);
 }

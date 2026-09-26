@@ -220,6 +220,8 @@ export interface ActionItem {
   label: string;
   icon?: string;
   hint?: string;
+  /** キーボードショートカットの表記 (タッチ端末では非表示) */
+  shortcut?: string;
   danger?: boolean;
   disabled?: boolean;
   checked?: boolean;
@@ -251,6 +253,7 @@ export function actionSheet(title: string | null, items: (ActionItem | 'separato
       h('span', { class: 'action-icon', html: item.icon ? icon(item.icon, 20) : '' }),
       h('span', { class: 'action-label', text: item.label }),
       item.hint ? h('span', { class: 'action-hint', text: item.hint }) : null,
+      item.shortcut ? h('span', { class: 'action-hint action-shortcut', text: item.shortcut }) : null,
       item.checked ? h('span', { class: 'action-check', html: icon('check', 18) }) : null,
     );
     list.appendChild(row);

@@ -141,20 +141,20 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
   const multi = ids.length > 1;
   const items: (ActionItem | 'separator')[] = [
     { label: '名前を変更', icon: 'edit', onSelect: () => void renameEntityPrompt(ctx, id), testId: 'menu-rename' },
-    { label: '複製', icon: 'duplicate', hint: 'Ctrl+D', onSelect: () => A.duplicateEntities(ed, ids), testId: 'menu-duplicate' },
+    { label: '複製', icon: 'duplicate', shortcut: 'Ctrl+D', onSelect: () => A.duplicateEntities(ed, ids), testId: 'menu-duplicate' },
     {
       label: 'コピー',
       icon: 'copy',
-      hint: 'Ctrl+C',
+      shortcut: 'Ctrl+C',
       onSelect: () => {
         const n = A.copyEntities(ed, ids);
         toast(`${n}個をコピーしました`, 'info', 1200);
       },
       testId: 'menu-copy',
     },
-    { label: '貼り付け', icon: 'paste', hint: 'Ctrl+V', disabled: !A.hasClipboard(), onSelect: () => A.pasteEntities(ed), testId: 'menu-paste' },
+    { label: '貼り付け', icon: 'paste', shortcut: 'Ctrl+V', disabled: !A.hasClipboard(), onSelect: () => A.pasteEntities(ed), testId: 'menu-paste' },
     'separator',
-    { label: multi ? `${ids.length}個をグループ化` : 'グループ化', icon: 'group', hint: 'Ctrl+G', onSelect: () => A.groupEntities(ed, ids), testId: 'menu-group' },
+    { label: multi ? `${ids.length}個をグループ化` : 'グループ化', icon: 'group', shortcut: 'Ctrl+G', onSelect: () => A.groupEntities(ed, ids), testId: 'menu-group' },
     ...(e.children.length > 0 && !multi
       ? [{ label: 'グループ解除', icon: 'ungroup', onSelect: () => A.ungroupEntity(ed, id), testId: 'menu-ungroup' } as ActionItem]
       : []),
@@ -166,7 +166,7 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
         ]
       : []),
     'separator',
-    { label: 'フォーカス', icon: 'focus', hint: 'F', onSelect: () => ed.requestFocus(ids) },
+    { label: 'フォーカス', icon: 'focus', shortcut: 'F', onSelect: () => ed.requestFocus(ids) },
     {
       label: e.visible ? '非表示にする' : '表示する',
       icon: e.visible ? 'eyeOff' : 'eye',
@@ -203,7 +203,7 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
     label: multi ? `${ids.length}個を削除` : '削除',
     icon: 'trash',
     danger: true,
-    hint: 'Del',
+    shortcut: 'Del',
     onSelect: () => A.deleteEntities(ed, ids),
     testId: 'menu-delete',
   });
@@ -292,7 +292,7 @@ export function openMainMenu(ctx: AppContext): void {
     {
       label: '保存',
       icon: 'save',
-      hint: 'Ctrl+S',
+      shortcut: 'Ctrl+S',
       testId: 'menu-save',
       onSelect: async () => {
         if (await p.save()) toast('保存しました', 'success', 1400);
