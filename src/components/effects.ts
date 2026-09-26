@@ -25,6 +25,30 @@ export interface ParticleHandle {
   burst(n?: number): void;
 }
 
+/** 3D モデルに入っているアニメーション */
+export interface ModelAnimHandle {
+  readonly clips: string[];
+  readonly current: string | null;
+  play(name: string, opts?: { once?: boolean; fade?: number }): boolean;
+  stop(): void;
+}
+
+/** 状態に合うモデルのアニメーション名を探す */
+export function findStateClip(clips: string[], state: CharacterState): string | null {
+  const patterns: Record<CharacterState, RegExp[]> = {
+    idle: [/idle/i, /wait/i, /stand/i, /待機/],
+    walk: [/walk/i, /歩/],
+    run: [/run/i, /sprint/i, /走/, /walk/i],
+    jump: [/jump/i, /ジャンプ/],
+    fall: [/fall/i, /jump/i],
+  };
+  for (const re of patterns[state]) {
+    const hit = clips.find((c) => re.test(c));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export interface CharacterAnimHandle {
   readonly state: CharacterState;
 }
@@ -198,10 +222,17 @@ export function registerEffectComponents(): void {
           return state;
         },
       };
+      let model: ModelAnimHandle | undefined;
       return {
         start() {
           rt.worldPosition(id, last);
           rt.registerController(id, 'charAnim', handle);
+          // 骨のアニメーションを持つ 3D モデルなら、状態に合うアニメーションを再生する
+          model = rt.getController<ModelAnimHandle>(id, 'modelAnim');
+          if (model && model.clips.length > 0) {
+            const idle = findStateClip(model.clips, 'idle');
+            if (idle) model.play(idle);
+          }
         },
         update(dt) {
           if (!content || !base || dt <= 0) return;
@@ -222,7 +253,15 @@ export function registerEffectComponents(): void {
           else state = 'idle';
           if ((prev === 'jump' || prev === 'fall') && state !== 'jump' && state !== 'fall' && airborne) squash = 1;
           airborne = state === 'jump' || state === 'fall';
-          if (prev !== state) rt.emit('char-state', id, { state });
+          if (prev !== state) {
+            rt.emit('char-state', id, { state });
+            if (model) {
+              const clip = findStateClip(model.clips, state);
+              if (clip) model.play(clip, { once: state === 'jump' });
+            }
+          }
+          // モデルのアニメーションがある場合は、見た目の揺れは付けない
+          if (model && model.clips.length > 0) return;
 
           // 足の運び (歩く・走るの速さに合わせる)
           phase += dt * (state === 'run' ? 14 : state === 'walk' ? 9 : 2);

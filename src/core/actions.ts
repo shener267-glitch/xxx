@@ -13,10 +13,12 @@ import {
 } from './commands';
 import type { Editor } from './Editor';
 import type { EventRule, VariableDef } from './events';
+import type { Placement } from './prefabs';
+import { collectSubtree, createPrefab, instantiatePrefab } from './prefabs';
 import { createEmptyScene } from './project';
 import type { SceneModel } from './SceneModel';
 import { matrixToTransform } from './transformMath';
-import type { EntityData, EnvironmentData, GameSettings, MaterialPreset, MusicData, PhysicsSettings, SceneData, TransformData, Vec3 } from './types';
+import type { EntityData, EnvironmentData, GameSettings, MaterialPreset, MusicData, PhysicsSettings, PrefabEntry, SceneData, TransformData, Vec3 } from './types';
 import { clone, createId, setPath, uniqueName } from './util';
 
 /**
@@ -599,4 +601,116 @@ export function renameProject(editor: Editor, name: string): boolean {
   editor.markDirty();
   editor.events.emit('project-changed', undefined);
   return true;
+}
+
+// ------------------------------------------------------------------
+// アセットから置く・Prefab・大量配置 (Phase 6)
+// ------------------------------------------------------------------
+
+/** 作ったオブジェクト (サブツリー、ルートが先頭) をまとめて追加する。1回の Undo で戻せる */
+export function addEntityTrees(editor: Editor, trees: EntityData[][], label: string, parent: string | null = null): string[] {
+  const model = editor.scene;
+  if (trees.length === 0) return [];
+  const names = model.names();
+  for (const t of trees) {
+    t[0].name = uniqueName(t[0].name, names);
+    names.push(t[0].name);
+  }
+  const par = parent && model.has(parent) ? parent : null;
+  const ids = trees.map((t) => t[0].id);
+  editor.execute(new AddEntitiesCommand(model, trees.map((entities) => ({ entities, parent: par })), label), { select: ids });
+  return ids;
+}
+
+/** プロジェクトの Prefab 一覧を置き換える (Undo 可能) */
+export function setPrefabs(editor: Editor, prefabs: PrefabEntry[], label: string): boolean {
+  const project = editor.project;
+  const before = clone(project.prefabs);
+  const after = clone(prefabs);
+  const apply = (v: PrefabEntry[]) => {
+    project.prefabs = clone(v);
+    editor.events.emit('assets-changed', undefined);
+  };
+  return editor.execute(new ValueCommand(label, apply, before, after, null));
+}
+
+/** 選択中のオブジェクト (と子) から Prefab を作る */
+export function createPrefabFromEntity(editor: Editor, id: string, name?: string, folder = ''): PrefabEntry | null {
+  const model = editor.scene;
+  const e = model.get(id);
+  if (!e) return null;
+  const prefab = createPrefab(model.subtree(id), name ?? e.name, folder);
+  const names = editor.project.prefabs.map((p) => p.name);
+  prefab.name = uniqueName(prefab.name, names);
+  setPrefabs(editor, [...editor.project.prefabs, prefab], `部品「${prefab.name}」を作成`);
+  // 元のオブジェクトも Prefab とつなげておく
+  updateEntities(editor, [id], (x) => (x.prefab = prefab.id), 'Prefab とつなげる', undefined);
+  return prefab;
+}
+
+/** Prefab を指定の位置に置く */
+export function placePrefab(editor: Editor, prefabId: string, position: Vec3): string | null {
+  const prefab = editor.project.prefabs.find((p) => p.id === prefabId);
+  if (!prefab) return null;
+  const tree = instantiatePrefab(prefab);
+  tree[0].transform.position = [position[0], position[1] + tree[0].transform.position[1], position[2]];
+  return addEntityTrees(editor, [tree], `部品「${prefab.name}」を置く`)[0] ?? null;
+}
+
+/** 置いたオブジェクトの今の状態で Prefab を上書きする */
+export function updatePrefabFromEntity(editor: Editor, entityId: string): boolean {
+  const e = editor.scene.get(entityId);
+  if (!e?.prefab) return false;
+  const list = clone(editor.project.prefabs);
+  const i = list.findIndex((p) => p.id === e.prefab);
+  if (i < 0) return false;
+  const next = createPrefab(editor.scene.subtree(entityId), list[i].name, list[i].folder);
+  list[i] = { ...next, id: list[i].id, createdAt: list[i].createdAt, thumb: list[i].thumb };
+  return setPrefabs(editor, list, `部品「${list[i].name}」を更新`);
+}
+
+/**
+ * お手本 (サブツリー) を配置パターンに従って大量に置く。
+ * group = true なら新しい空のオブジェクトの子にまとめる。
+ */
+export function massPlace(
+  editor: Editor,
+  template: EntityData[],
+  placements: Placement[],
+  opts: { group: boolean; groupName: string; center: Vec3; prefabId?: string },
+): string[] {
+  if (template.length === 0 || placements.length === 0) return [];
+  const baseRot = template[0].transform.rotation;
+  const baseScale = template[0].transform.scale;
+  const trees = placements.map((pl) => {
+    const tree = cloneWithNewIds(template);
+    const r = tree[0];
+    r.parent = null;
+    if (opts.prefabId) r.prefab = opts.prefabId;
+    const pos: Vec3 = opts.group ? [pl.position[0] - opts.center[0], pl.position[1] - opts.center[1], pl.position[2] - opts.center[2]] : pl.position;
+    r.transform.position = pos;
+    r.transform.rotation = [baseRot[0], (baseRot[1] + pl.rotationY) % 360, baseRot[2]];
+    r.transform.scale = [baseScale[0] * pl.scale, baseScale[1] * pl.scale, baseScale[2] * pl.scale];
+    return tree;
+  });
+  const model = editor.scene;
+  if (!opts.group) return addEntityTrees(editor, trees, `${trees.length}個を配置`);
+  const group = createEntity('empty', opts.groupName);
+  group.name = uniqueName(opts.groupName, model.names());
+  group.transform.position = [...opts.center];
+  const names = model.names();
+  for (const t of trees) {
+    t[0].name = uniqueName(t[0].name, names);
+    names.push(t[0].name);
+    t[0].parent = group.id;
+    group.children.push(t[0].id);
+  }
+  const all = [group, ...trees.flat()];
+  editor.execute(new AddEntitiesCommand(model, [{ entities: all, parent: null }], `${trees.length}個を配置`), { select: [group.id] });
+  return [group.id];
+}
+
+/** Prefab のお手本 (サブツリー) */
+export function prefabTemplate(prefab: PrefabEntry): EntityData[] {
+  return collectSubtree(prefab.entities, prefab.root);
 }

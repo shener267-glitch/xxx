@@ -121,6 +121,15 @@ export function computeColliderShape(e: EntityData, worldScale: Vec3, collider: 
   const offset: Vec3 = collider ? [collider.offset[0] * sx, collider.offset[1] * sy, collider.offset[2] * sz] : [0, 0, 0];
   let kind = collider?.shape ?? 'auto';
   const meshShape = e.kind === 'mesh' ? e.mesh?.shape : undefined;
+  // 3D モデル: 読み込み時に調べた大きさの箱 (中心のずれも反映)
+  if (e.kind === 'model' && e.model && kind === 'auto') {
+    const m = e.model;
+    return {
+      kind: 'box',
+      half: [(m.size[0] * size[0] * sx) / 2, (m.size[1] * size[1] * sy) / 2, (m.size[2] * size[2] * sz) / 2],
+      offset: [offset[0] + m.center[0] * sx, offset[1] + m.center[1] * sy, offset[2] + m.center[2] * sz],
+    };
+  }
   if (kind === 'auto') {
     switch (meshShape) {
       case 'sphere':

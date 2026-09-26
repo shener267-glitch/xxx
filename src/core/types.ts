@@ -97,7 +97,7 @@ export interface ComponentData {
   props: Record<string, unknown>;
 }
 
-export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light' | 'ui';
+export type EntityKind = 'empty' | 'mesh' | 'camera' | 'light' | 'ui' | 'model';
 
 export type UIType = 'text' | 'button' | 'image' | 'bar';
 export type UIAnchor = 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right';
@@ -129,10 +129,26 @@ export interface UIElementData {
   barValue: string;
   /** ゲージの最大値 (0 = 最大 HP) */
   barMax: number;
+  /** フォント (フォントアセットの ID。null = 標準) */
+  font: string | null;
   /** ボタンの動作 */
   action: UIButtonAction;
   /** 角の丸み (px) */
   radius: number;
+}
+
+/** 読み込んだ 3D モデル (glTF / GLB) */
+export interface ModelData {
+  /** モデルアセットの ID */
+  asset: string | null;
+  /** モデルの大きさ (拡大 1 のとき, m)。当たり判定に使う */
+  size: Vec3;
+  /** モデルの中心 (ローカル座標) */
+  center: Vec3;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  /** くり返し再生するモデルのアニメーション ('' = なし) */
+  animation: string;
 }
 
 export interface EntityData {
@@ -150,6 +166,9 @@ export interface EntityData {
   light?: LightData;
   camera?: CameraData;
   ui?: UIElementData;
+  model?: ModelData;
+  /** 元になった Prefab (Prefab から置いたもの) */
+  prefab?: string;
   components: ComponentData[];
   tags: string[];
 }
@@ -266,6 +285,18 @@ export type AssetType = 'image' | 'audio' | 'model' | 'font';
  * アセットのメタ情報。ファイル本体 (Blob) は IndexedDB の assets ストアに保存し、
  * 書き出し時はプロジェクトファイルに埋め込む。
  */
+export interface AssetInfo {
+  width?: number;
+  height?: number;
+  /** 音声の長さ (秒) */
+  duration?: number;
+  /** 3D モデルの大きさ・中心・アニメーション名・三角形の数 */
+  modelSize?: Vec3;
+  modelCenter?: Vec3;
+  animations?: string[];
+  triangles?: number;
+}
+
 export interface AssetEntry {
   id: string;
   name: string;
@@ -275,14 +306,21 @@ export interface AssetEntry {
   mime: string;
   size: number;
   createdAt: number;
+  /** 一覧に表示する小さな画像 (data URL) */
+  thumb?: string;
+  info?: AssetInfo;
 }
 
-/** Phase 6 で Prefab を実装する際の予約領域 */
+/** 部品 (Prefab): オブジェクトのまとまりを保存して、何度でも置けるようにしたもの */
 export interface PrefabEntry {
   id: string;
   name: string;
+  /** 一番上のエンティティの ID (entities の中) */
   root: string;
   entities: Record<string, EntityData>;
+  folder: string;
+  createdAt: number;
+  thumb?: string;
 }
 
 export const PROJECT_FORMAT = 'pocket-engine-project';
@@ -302,6 +340,8 @@ export interface ProjectData {
   startSceneId: string;
   assets: AssetEntry[];
   prefabs: PrefabEntry[];
+  /** アセットの空のフォルダも残すための一覧 */
+  assetFolders: string[];
   game: GameSettings;
   /** プロジェクト全体の変数 (イベントで使う) */
   variables: VariableDef[];

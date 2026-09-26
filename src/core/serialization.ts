@@ -1,4 +1,5 @@
 import {
+  defaultModel,
   defaultCamera,
   defaultEnvironment,
   defaultGameSettings,
@@ -12,6 +13,8 @@ import {
 } from './catalog';
 import type {
   AssetEntry,
+  AssetInfo,
+  PrefabEntry,
   AssetType,
   CameraStateData,
   ComponentData,
@@ -73,7 +76,7 @@ const SKIES: SkyType[] = ['color', 'gradient', 'physical'];
 const WEATHERS: WeatherType[] = ['none', 'rain', 'snow'];
 const ASSET_TYPES: AssetType[] = ['image', 'audio', 'model', 'font'];
 const LIGHTS: LightType[] = ['directional', 'point', 'spot', 'hemisphere', 'ambient'];
-const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light', 'ui'];
+const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light', 'ui', 'model'];
 const UI_TYPES: UIType[] = ['text', 'button', 'image', 'bar'];
 const UI_ACTIONS: UIButtonAction[] = ['none', 'jump', 'action', 'pause', 'restart', 'title'];
 const UI_ANCHORS: UIAnchor[] = ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'];
@@ -98,6 +101,7 @@ function sanitizeUI(raw: unknown): UIElementData {
     barValue: str(u.barValue, d.barValue),
     barMax: Math.max(0, num(u.barMax, d.barMax)),
     action: oneOf(u.action, UI_ACTIONS, d.action),
+    font: typeof u.font === 'string' && u.font ? u.font : null,
     radius: Math.max(0, num(u.radius, d.radius)),
   };
 }
@@ -145,6 +149,7 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
     components: [],
     tags: Array.isArray(raw.tags) ? raw.tags.filter((x): x is string => typeof x === 'string') : [],
   };
+  if (typeof raw.prefab === 'string' && raw.prefab) e.prefab = raw.prefab;
 
   if (kind === 'mesh') {
     const m = isObj(raw.mesh) ? raw.mesh : {};
@@ -189,6 +194,17 @@ function sanitizeEntity(raw: Obj, id: string): EntityData {
     };
   } else if (kind === 'ui') {
     e.ui = sanitizeUI(raw.ui);
+  } else if (kind === 'model') {
+    const m = isObj(raw.model) ? raw.model : {};
+    const d = defaultModel();
+    e.model = {
+      asset: typeof m.asset === 'string' && m.asset ? m.asset : null,
+      size: vec3(m.size, d.size).map((v) => Math.max(0.001, Math.abs(v))) as Vec3,
+      center: vec3(m.center, d.center),
+      castShadow: bool(m.castShadow, d.castShadow),
+      receiveShadow: bool(m.receiveShadow, d.receiveShadow),
+      animation: str(m.animation, '').slice(0, 100),
+    };
   } else if (kind === 'camera') {
     const c = isObj(raw.camera) ? raw.camera : {};
     const d = defaultCamera();
@@ -293,6 +309,47 @@ function sanitizeAssets(raw: unknown): AssetEntry[] {
       mime: str(a.mime, ''),
       size: num(a.size, 0),
       createdAt: num(a.createdAt, Date.now()),
+      ...(typeof a.thumb === 'string' && a.thumb.startsWith('data:image/') && a.thumb.length < 200_000 ? { thumb: a.thumb } : {}),
+      ...(isObj(a.info) ? { info: sanitizeAssetInfo(a.info) } : {}),
+    });
+  }
+  return out;
+}
+
+function sanitizeAssetInfo(i: Obj): AssetInfo {
+  const out: AssetInfo = {};
+  if (typeof i.width === 'number') out.width = num(i.width, 0);
+  if (typeof i.height === 'number') out.height = num(i.height, 0);
+  if (typeof i.duration === 'number') out.duration = num(i.duration, 0);
+  if (Array.isArray(i.modelSize)) out.modelSize = vec3(i.modelSize, [1, 1, 1]);
+  if (Array.isArray(i.modelCenter)) out.modelCenter = vec3(i.modelCenter, [0, 0, 0]);
+  if (Array.isArray(i.animations)) out.animations = i.animations.filter((x): x is string => typeof x === 'string').slice(0, 100);
+  if (typeof i.triangles === 'number') out.triangles = num(i.triangles, 0);
+  return out;
+}
+
+function sanitizePrefabs(raw: unknown): PrefabEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PrefabEntry[] = [];
+  const ids = new Set<string>();
+  for (const p of raw) {
+    if (!isObj(p) || typeof p.id !== 'string' || ids.has(p.id) || !isObj(p.entities)) continue;
+    const entities: Record<string, EntityData> = {};
+    for (const [id, e] of Object.entries(p.entities)) if (isObj(e)) entities[id] = sanitizeEntity(e, id);
+    const root = typeof p.root === 'string' && entities[p.root] ? p.root : Object.keys(entities)[0];
+    if (!root) continue;
+    // 参照の壊れた子を取り除く
+    for (const e of Object.values(entities)) e.children = e.children.filter((c) => entities[c]);
+    entities[root].parent = null;
+    ids.add(p.id);
+    out.push({
+      id: p.id,
+      name: str(p.name, '部品').slice(0, 100),
+      root,
+      entities,
+      folder: str(p.folder, ''),
+      createdAt: num(p.createdAt, Date.now()),
+      ...(typeof p.thumb === 'string' && p.thumb.startsWith('data:image/') && p.thumb.length < 200_000 ? { thumb: p.thumb } : {}),
     });
   }
   return out;
@@ -375,7 +432,8 @@ export function sanitizeProject(input: unknown): ProjectData {
     activeSceneId: pickScene(raw.activeSceneId),
     startSceneId: pickScene(raw.startSceneId),
     assets: sanitizeAssets(raw.assets),
-    prefabs: Array.isArray(raw.prefabs) ? (clone(raw.prefabs) as ProjectData['prefabs']) : [],
+    prefabs: sanitizePrefabs(raw.prefabs),
+    assetFolders: Array.isArray(raw.assetFolders) ? [...new Set(raw.assetFolders.filter((f): f is string => typeof f === 'string' && f.trim() !== '').map((f) => f.slice(0, 200)))] : [],
     game: sanitizeGame(raw.game, name),
     variables: sanitizeVariables(raw.variables),
   };

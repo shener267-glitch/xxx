@@ -8,8 +8,10 @@ import { saveSettings } from '../core/settings';
 import type { ProjectData } from '../core/types';
 import { EditorViewport } from '../engine/EditorViewport';
 import { EngineRenderer } from '../engine/EngineRenderer';
+import { renderThumbnail } from '../engine/thumbnail';
 import type { Storage } from '../storage/ProjectRepository';
 import { BottomSheet } from './BottomSheet';
+import { placeAsset } from './assetDialogs';
 import type { AppContext, SheetState, TabId } from './context';
 import { h } from './dom';
 import { openAddSheet, openEntityMenu, openMainMenu, showHelp } from './menus';
@@ -83,6 +85,8 @@ export class App implements AppContext {
       },
     });
     this.projects = new ProjectService(storage.projects, ed, () => this.viewport, this.assets);
+    // 3D モデルの小さな画像はエンジンのレンダラーで作る
+    this.assets.thumbnailer = (obj) => renderThumbnail(this.engine.renderer, obj);
     this.play = new PlayController(ed, this.viewport, runtimeOverlay);
     this.sheet = new BottomSheet(this.root, main);
 
@@ -96,7 +100,8 @@ export class App implements AppContext {
     this.sheet.addPanel('scene', new ScenePanel(this).el);
     this.sheet.addPanel('inspector', new InspectorPanel(this).el);
     this.sheet.addPanel('events', new EventsPanel(this).el);
-    this.sheet.addPanel('assets', new AssetsPanel(this).el);
+    const assetsPanel = new AssetsPanel(this);
+    this.sheet.addPanel('assets', assetsPanel.el);
     this.sheet.addPanel('settings', new SettingsPanel(this).el);
 
     this.root.append(topbar.el, main, toolbar.el, this.sheet.tabbar);
@@ -108,8 +113,38 @@ export class App implements AppContext {
     });
 
     installShortcuts(this);
+    this.installFileDrop(assetsPanel);
     logger.subscribe((entry) => {
       if (entry.level === 'error' && !entry.source?.startsWith('Play')) toast(entry.message, 'error', 4000);
+    });
+  }
+
+  /** PC: ファイルをウィンドウにドラッグして読み込む (3D ビューに落とすとその場所に置く) */
+  private installFileDrop(panel: AssetsPanel): void {
+    const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e) || this.editor.mode === 'play') return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      this.root.classList.add('file-over');
+    });
+    window.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null) this.root.classList.remove('file-over');
+    });
+    window.addEventListener('drop', (e) => {
+      this.root.classList.remove('file-over');
+      if (!hasFiles(e) || this.editor.mode === 'play') return;
+      e.preventDefault();
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (files.length === 0) return;
+      const overViewport = !!(e.target as Element | null)?.closest?.('[data-testid="viewport"]');
+      const at = { x: e.clientX, y: e.clientY };
+      void this.assets.importFiles(files, panel.currentFolder).then(({ added, errors }) => {
+        errors.forEach((m) => toast(m, 'error', 4000));
+        if (added.length === 0) return;
+        toast(`${added.length} 個のアセットを読み込みました`, 'success', 1800);
+        if (overViewport) for (const a of added) if (a.type === 'model' || a.type === 'image') placeAsset(this, a, at);
+      });
     });
   }
 

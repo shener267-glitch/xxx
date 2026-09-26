@@ -1,4 +1,5 @@
-import { Box3, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
+import { AnimationMixer, Box3, LoopOnce, LoopRepeat, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
+import type { AnimationAction, AnimationClip } from 'three';
 import type { Object3D } from 'three';
 import type { ComponentInstance, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
 import { getComponentDef } from '../components/registry';
@@ -15,7 +16,7 @@ import { resolveBodySpec } from '../engine/colliderShapes';
 import type { ParticlePreset } from '../engine/particles';
 import { MAX_PARTICLES, PARTICLE_PRESETS, ParticleEmitter, particleSettings } from '../engine/particles';
 import { splitPages } from '../components/gameplay';
-import type { AnimationHandle, ParticleHandle } from '../components/effects';
+import type { AnimationHandle, ModelAnimHandle, ParticleHandle } from '../components/effects';
 import { clone, createId } from '../core/util';
 import type { EventHost } from './EventSystem';
 import { EventSystem } from './EventSystem';
@@ -209,6 +210,7 @@ export class GameRuntime implements RuntimeAPI {
   private startPositions = new Map<string, Vec3>();
   private tweens: Tween[] = [];
   private controllers = new Map<string, unknown>();
+  private mixers: AnimationMixer[] = [];
   private effects: { emitter: ParticleEmitter; origin: Matrix4 }[] = [];
   private readonly qualityLevel: QualityLevel;
   /** ノーコードのイベント */
@@ -545,6 +547,10 @@ export class GameRuntime implements RuntimeAPI {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    // 3D モデルの読み込みを待つ (大きなモデルでも止まらないよう上限あり)
+    await Promise.race([this.builder.whenLoaded(), new Promise((r) => setTimeout(r, 15000))]);
+    if (!this.running) return;
+    this.setupModelAnimations();
     await this.initPhysics();
     // シェーダーを事前にコンパイルして、最初のフレームでの引っかかりを防ぐ
     try {
@@ -567,6 +573,45 @@ export class GameRuntime implements RuntimeAPI {
     this.lastTime = performance.now();
     this.statTime = this.lastTime;
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /** 3D モデルに入っているアニメーション (骨の動きなど) を再生できるようにする */
+  private setupModelAnimations(): void {
+    for (const e of Object.values(this.sceneData.entities)) {
+      if (e.kind !== 'model') continue;
+      const holder = this.objects.get(e.id)?.userData.content;
+      const clips = (holder?.userData.animations as AnimationClip[] | undefined) ?? [];
+      if (!holder || clips.length === 0) continue;
+      const mixer = new AnimationMixer(holder);
+      this.mixers.push(mixer);
+      const actions = new Map<string, AnimationAction>();
+      for (const c of clips) actions.set(c.name, mixer.clipAction(c));
+      let current: AnimationAction | null = null;
+      const handle: ModelAnimHandle = {
+        clips: clips.map((c) => c.name),
+        get current() {
+          return current?.getClip().name ?? null;
+        },
+        play: (name, opts = {}) => {
+          const next = actions.get(name) ?? [...actions.entries()].find(([n]) => n.toLowerCase() === name.toLowerCase())?.[1];
+          if (!next) return false;
+          if (next === current && next.isRunning()) return true;
+          next.reset();
+          next.setLoop(opts.once ? LoopOnce : LoopRepeat, Infinity);
+          next.clampWhenFinished = !!opts.once;
+          next.play();
+          if (current && current !== next) current.crossFadeTo(next, opts.fade ?? 0.25, false);
+          current = next;
+          return true;
+        },
+        stop: () => {
+          current?.fadeOut(0.2);
+          current = null;
+        },
+      };
+      this.registerController(e.id, 'modelAnim', handle);
+      if (e.model?.animation) handle.play(e.model.animation);
+    }
   }
 
   /** タイトル画面から (または直接) ゲームを始める */
@@ -634,6 +679,7 @@ export class GameRuntime implements RuntimeAPI {
       }
       this.physics?.step(dt);
       this.updateTweens(dt);
+      for (const m of this.mixers) m.update(dt);
       try {
         // 会話などでこのフレームの途中から止まった場合は、再開してから処理する
         if (!this.frozen) this.events.update(dt);
@@ -768,10 +814,15 @@ export class GameRuntime implements RuntimeAPI {
       },
       playAnimation: (id, clip) => {
         const a = rt.getController<AnimationHandle>(id, 'animation');
-        if (!a) rt.report('アニメーションが付いていないオブジェクトです', 'warn', rt.sceneData.entities[id]);
-        else if (!a.play(clip)) rt.report(`アニメーション「${clip}」が見つかりません`, 'warn', rt.sceneData.entities[id]);
+        const m = rt.getController<ModelAnimHandle>(id, 'modelAnim');
+        if (a?.play(clip)) return;
+        if (m?.play(clip)) return;
+        rt.report(a || m ? `アニメーション「${clip}」が見つかりません` : 'アニメーションが付いていないオブジェクトです', 'warn', rt.sceneData.entities[id]);
       },
-      stopAnimation: (id) => rt.getController<AnimationHandle>(id, 'animation')?.stop(),
+      stopAnimation: (id) => {
+        rt.getController<AnimationHandle>(id, 'animation')?.stop();
+        rt.getController<ModelAnimHandle>(id, 'modelAnim')?.stop();
+      },
       spawnEffect: (preset, atId, scale) => {
         if (!rt.objects.has(atId)) return;
         const p = rt.worldPosition(atId, new Vector3());
@@ -1311,6 +1362,8 @@ export class GameRuntime implements RuntimeAPI {
     this.audio.dispose();
     for (const e of this.effects) e.emitter.dispose();
     this.effects = [];
+    for (const m of this.mixers) m.stopAllAction();
+    this.mixers = [];
     this.controllers.clear();
     this.eventListeners.clear();
     for (const obj of this.objects.values()) this.builder.dispose(obj);

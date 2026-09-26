@@ -94,6 +94,7 @@ export function createProject(name = '新しいゲーム', sample = true): Proje
     startSceneId: scene.id,
     assets: [],
     prefabs: [],
+    assetFolders: [],
     game: defaultGameSettings(name),
     variables: [],
   };

@@ -74,6 +74,10 @@ export class EditorViewport {
     handlers: ViewportInputHandlers,
   ) {
     this.builder = new SceneBuilder({ editor: true, quality: editor.settings.quality });
+    this.builder.onAsyncLoaded = () => {
+      this.selectionDirty = true;
+      this.requestRender();
+    };
     this.env = new SceneEnvironment(this.scene, engine.renderer, editor.settings.quality);
     this.env.weatherVisible = editor.settings.previewEffects;
     this.camera = new EditorCamera(engine.width / engine.height);

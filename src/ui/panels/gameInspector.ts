@@ -1,6 +1,6 @@
 import * as A from '../../core/actions';
 import { BUILTIN_MUSIC, BUILTIN_PREFIX, BUILTIN_SFX, builtinSoundLabel, isBuiltinSound } from '../../core/sounds';
-import type { EntityData, GameSettings, UIAnchor, UIButtonAction, UIElementData } from '../../core/types';
+import type { AssetEntry, EntityData, GameSettings, UIAnchor, UIButtonAction, UIElementData, Vec3 } from '../../core/types';
 import { AudioEngine } from '../../runtime/AudioEngine';
 import { resolveAsset } from '../../engine/textures';
 import type { AppContext } from '../context';
@@ -274,7 +274,7 @@ export function uiElementSection(kit: InspectorKit, e: EntityData): HTMLElement 
   if (type === 'text' || type === 'button') {
     const size = new NumberField({ step: 1, min: 4, max: 200, title: '文字の大きさ', testId: 'ui-font-size', onChange: (v) => set('fontSize', v, '文字の大きさを変更') });
     kit.bind(() => size.set(cur()?.fontSize ?? 20));
-    rows.push(fieldRow('文字の大きさ', size.el, { hint: 'px' }));
+    rows.push(fieldRow('文字の大きさ', size.el, { hint: 'px' }), uiFontField(kit, id));
   }
   if (type !== 'image') {
     const bg = new ColorField({ title: '背景の色', testId: 'ui-bg', onChange: (v) => set('background', v, '背景の色を変更') });
@@ -380,4 +380,121 @@ export function gameSettingsSection(kit: InspectorKit): HTMLElement {
     ],
     { collapsed: true, testId: 'sec-game' },
   );
+}
+
+// ------------------------------------------------------------------
+// 3D モデル
+// ------------------------------------------------------------------
+
+export function modelSection(kit: InspectorKit, e: EntityData): HTMLElement {
+  const ed = kit.ctx.editor;
+  const assets = kit.ctx.assets;
+  const id = e.id;
+  const cur = () => ed.scene.get(id)?.model;
+  const set = (path: string, v: unknown, label: string) => A.setEntityValue(ed, [id], `model.${path}`, v, { label });
+  const label = h('span', { class: 'tex-name' });
+  const thumb = h('span', { class: 'tex-thumb' });
+  const pick = h(
+    'button',
+    {
+      class: 'tex-field',
+      attrs: { type: 'button', 'data-testid': 'model-asset' },
+      on: {
+        click: () => {
+          const models = assets.byType('model');
+          const choose = (a: AssetEntry) =>
+            A.updateEntities(
+              ed,
+              [id],
+              (x) => {
+                if (!x.model) return;
+                x.model.asset = a.id;
+                if (a.info?.modelSize) x.model.size = [...a.info.modelSize] as Vec3;
+                if (a.info?.modelCenter) x.model.center = [...a.info.modelCenter] as Vec3;
+                x.model.animation = '';
+              },
+              'モデルを変更',
+            );
+          actionSheet('3D モデル', [
+            {
+              label: 'GLB ファイルを読み込む…',
+              icon: 'upload',
+              onSelect: () => {
+                void assets.pickAndImport('model', '', false).then(({ added, errors }) => {
+                  errors.forEach((m) => toast(m, 'error', 4000));
+                  if (added[0]) choose(added[0]);
+                });
+              },
+            },
+            ...(models.length ? (['separator'] as const) : []),
+            ...models.map((a) => ({ label: a.name, icon: 'box', checked: a.id === cur()?.asset, onSelect: () => choose(a) })),
+          ]);
+        },
+      },
+    },
+    thumb,
+    label,
+  );
+  const cast = new Toggle({ title: '影を落とす', onChange: (v) => set('castShadow', v, '影の設定を変更') });
+  const receive = new Toggle({ title: '影を受ける', onChange: (v) => set('receiveShadow', v, '影の設定を変更') });
+  const anim = h('select', { class: 'select', attrs: { 'aria-label': 'アニメーション', 'data-testid': 'model-animation' } });
+  anim.addEventListener('change', () => set('animation', anim.value, 'アニメーションを変更'));
+  const sizeText = h('span', { class: 'readonly-value' });
+  kit.bind(() => {
+    const m = cur();
+    if (!m) return;
+    const a = assets.find(m.asset);
+    label.textContent = a ? a.name : '(見つかりません)';
+    thumb.innerHTML = '';
+    thumb.style.backgroundImage = a?.thumb ? `url(${a.thumb})` : '';
+    if (!a?.thumb) thumb.innerHTML = icon('box', 18);
+    cast.set(m.castShadow);
+    receive.set(m.receiveShadow);
+    const clips = a?.info?.animations ?? [];
+    anim.replaceChildren(h('option', { text: clips.length ? '(再生しない)' : '(アニメーションなし)', props: { value: '' } }), ...clips.map((c) => h('option', { text: c, props: { value: c } })));
+    anim.value = m.animation;
+    anim.disabled = clips.length === 0;
+    sizeText.textContent = `${m.size.map((v) => v.toFixed(2)).join(' × ')} m`;
+  });
+  return kit.section(
+    '3D モデル',
+    'box',
+    [
+      fieldRow('モデル', pick),
+      fieldRow('大きさ', sizeText, { hint: '拡大 1 のとき' }),
+      fieldRow('くり返し再生', anim, { hint: 'モデルのアニメーション (歩く・走るは「キャラクターの動き」が自動で切り替え)' }),
+      fieldRow('影を落とす', cast.el),
+      fieldRow('影を受ける', receive.el),
+    ],
+    { testId: 'sec-model' },
+  );
+}
+
+/** UI の文字のフォント (フォントアセットから選ぶ) */
+export function uiFontField(kit: InspectorKit, id: string): HTMLElement {
+  const ed = kit.ctx.editor;
+  const assets = kit.ctx.assets;
+  const sel = h('select', { class: 'select', attrs: { 'aria-label': 'フォント', 'data-testid': 'ui-font' } });
+  sel.addEventListener('change', () => {
+    if (sel.value === '__import') {
+      void assets.pickAndImport('font', '', false).then(({ added, errors }) => {
+        errors.forEach((m) => toast(m, 'error', 4000));
+        if (added[0]) A.setEntityValue(ed, [id], 'ui.font', added[0].id, { label: 'フォントを変更' });
+        else refresh();
+      });
+      return;
+    }
+    A.setEntityValue(ed, [id], 'ui.font', sel.value || null, { label: 'フォントを変更' });
+  });
+  const refresh = () => {
+    const cur = ed.scene.get(id)?.ui?.font ?? '';
+    sel.replaceChildren(
+      h('option', { text: '標準のフォント', props: { value: '' } }),
+      ...assets.byType('font').map((a) => h('option', { text: a.name, props: { value: a.id } })),
+      h('option', { text: 'フォントを読み込む…', props: { value: '__import' } }),
+    );
+    sel.value = cur;
+  };
+  kit.bind(refresh);
+  return fieldRow('フォント', sel);
 }

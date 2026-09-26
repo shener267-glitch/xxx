@@ -8,6 +8,7 @@ import type { AppContext } from './context';
 import { h } from './dom';
 import { icon } from './icons';
 import type { ActionItem } from './overlays';
+import { makePrefab, openMassPlace } from './assetDialogs';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
 /**
@@ -183,6 +184,29 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
       testId: 'menu-lock',
     },
   ];
+  if (!multi && e.kind !== 'ui') {
+    items.push(
+      'separator',
+      { label: '部品 (Prefab) にする', icon: 'duplicate', testId: 'menu-prefab', onSelect: () => void makePrefab(ctx, id) },
+      {
+        label: '並べて置く (大量配置)…',
+        icon: 'grid',
+        testId: 'menu-scatter',
+        onSelect: () => openMassPlace(ctx, { name: e.name, template: ed.scene.subtree(id), prefabId: e.prefab }),
+      },
+    );
+    const linked = e.prefab ? ed.project.prefabs.find((p) => p.id === e.prefab) : undefined;
+    if (linked) {
+      items.push({
+        label: `部品「${linked.name}」に反映`,
+        icon: 'upload',
+        testId: 'menu-prefab-update',
+        onSelect: () => {
+          if (A.updatePrefabFromEntity(ed, id)) toast(`部品「${linked.name}」を更新しました`, 'success', 1500);
+        },
+      });
+    }
+  }
   if (!multi && e.kind === 'mesh') {
     const isPlayer = ed.sceneData.playerId === id;
     items.push({

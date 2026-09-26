@@ -1,5 +1,6 @@
 import type { EntityData, GameSettings, UIAnchor, UIButtonAction, UIElementData } from '../core/types';
 import { h } from '../ui/dom';
+import { ensureFont, fontStack } from '../engine/fonts';
 import type { AudioVolumes } from './AudioEngine';
 import type { GameState } from './GameState';
 import { barValue, formatTime, formatUIText } from './GameState';
@@ -152,6 +153,10 @@ export function buildUIElement(
   if (d.type === 'image' && d.width <= 0) el.style.width = '64px';
   if (d.type === 'image' && d.height <= 0) el.style.height = '64px';
   if (d.type === 'text' && d.backgroundOpacity > 0) el.style.padding = '4px 10px';
+  if (d.font && (d.type === 'text' || d.type === 'button')) {
+    el.style.fontFamily = fontStack(d.font);
+    void ensureFont(d.font);
+  }
   item.el = el;
   return item;
 }

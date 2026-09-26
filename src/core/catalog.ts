@@ -11,6 +11,7 @@ import type {
   MaterialPattern,
   MaterialPreset,
   MeshData,
+  ModelData,
   MusicData,
   GameSettings,
   PhysicsSettings,
@@ -139,6 +140,7 @@ export const KIND_LABELS: Record<EntityKind, string> = {
   camera: 'カメラ',
   light: 'ライト',
   ui: 'UI',
+  model: '3D モデル',
 };
 
 export const UI_LABELS: Record<UIType, string> = {
@@ -151,6 +153,8 @@ export const UI_LABELS: Record<UIType, string> = {
 /** エンティティの見た目に合うアイコン名 */
 export function entityIcon(e: EntityData): string {
   switch (e.kind) {
+    case 'model':
+      return 'box';
     case 'ui':
       return e.ui?.type === 'button' ? 'pointer' : e.ui?.type === 'image' ? 'image' : e.ui?.type === 'bar' ? 'sliders' : 'font';
     case 'mesh':
@@ -181,6 +185,7 @@ export function entityTypeLabel(e: EntityData): string {
   if (e.kind === 'light' && e.light) return LIGHT_LABELS[e.light.type];
   if (e.kind === 'empty' && e.children.length > 0) return 'グループ';
   if (e.kind === 'ui' && e.ui) return UI_LABELS[e.ui.type];
+  if (e.kind === 'model') return '3D モデル';
   return KIND_LABELS[e.kind];
 }
 
@@ -253,6 +258,10 @@ export function defaultPhysics(): PhysicsSettings {
   return { enabled: true, gravity: [0, -9.81, 0], autoColliders: true };
 }
 
+export function defaultModel(asset: string | null = null): ModelData {
+  return { asset, size: [1, 1, 1], center: [0, 0.5, 0], castShadow: true, receiveShadow: true, animation: '' };
+}
+
 export function defaultMusic(): MusicData {
   return { source: null, volume: 0.6 };
 }
@@ -288,6 +297,7 @@ export function defaultUI(type: UIType): UIElementData {
     image: null,
     barValue: 'hp',
     barMax: 0,
+    font: null,
     action: 'none',
     radius: 10,
   };

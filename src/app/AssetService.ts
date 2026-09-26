@@ -1,8 +1,12 @@
 import type { Editor } from '../core/Editor';
 import { logger } from '../core/logger';
-import type { AssetEntry, AssetType } from '../core/types';
+import type { Object3D } from 'three';
+import type { AssetEntry, AssetInfo, AssetType } from '../core/types';
 import { createId, uniqueName } from '../core/util';
 import { invalidateAssetTexture, setAssetResolver } from '../engine/textures';
+import { registerFont } from '../engine/fonts';
+import { invalidateModel, parseModel } from '../engine/models';
+import { audioDuration, imageThumbnail } from '../engine/thumbnail';
 import type { AssetStore } from '../storage/ProjectRepository';
 
 /**
@@ -94,9 +98,21 @@ export async function dataUrlToBlob(url: string): Promise<Blob> {
   return res.blob();
 }
 
+/** フォルダのパスを正規化する ('a / b/' → 'a/b') */
+export function normalizeFolder(path: string): string {
+  return path
+    .split('/')
+    .map((p) => p.trim())
+    .filter((p) => p !== '')
+    .join('/')
+    .slice(0, 200);
+}
+
 export class AssetService {
   /** 読み込み済み Blob のキャッシュ (同じファイルを何度も DB から読まない) */
   private cache = new Map<string, Blob>();
+  /** 3D モデルの小さな画像を作る関数 (エンジンのレンダラーを使う。App が設定する) */
+  thumbnailer: ((object: Object3D) => string | null) | null = null;
 
   constructor(
     readonly store: AssetStore,
@@ -161,14 +177,48 @@ export class AssetService {
     if (!type) throw new Error(`「${file.name}」は対応していない形式です`);
     if (file.size > MAX_FILE_SIZE) throw new Error(`「${file.name}」は大きすぎます (30MB まで)`);
     const blob = type === 'image' ? await shrinkImage(file, file.name) : file;
+    // 種類ごとに中身を確認し、一覧用の情報と小さな画像を作る
+    const id = createId('a');
+    let info: AssetInfo | undefined;
+    let thumb: string | undefined;
+    if (type === 'image') {
+      const t = await imageThumbnail(blob);
+      if (!t.thumb) throw new Error(`「${file.name}」は画像として読み込めませんでした`);
+      info = { width: t.width, height: t.height };
+      thumb = t.thumb;
+    } else if (type === 'model') {
+      let model;
+      try {
+        model = await parseModel(await blob.arrayBuffer());
+      } catch (err) {
+        const hint = file.name.toLowerCase().endsWith('.gltf') ? ' (.gltf は外部ファイルを参照していると読めません。.glb を使ってください)' : '';
+        throw new Error(`「${file.name}」を 3D モデルとして読み込めませんでした${hint}`, { cause: err });
+      }
+      info = { modelSize: model.size, modelCenter: model.center, animations: model.animations.map((a) => a.name), triangles: model.triangles };
+      try {
+        thumb = this.thumbnailer?.(model.scene) ?? undefined;
+      } catch {
+        thumb = undefined;
+      }
+    } else if (type === 'audio') {
+      info = { duration: await audioDuration(blob) };
+    } else if (type === 'font') {
+      try {
+        await registerFont(id, await blob.arrayBuffer());
+      } catch (err) {
+        throw new Error(`「${file.name}」はフォントとして読み込めませんでした`, { cause: err });
+      }
+    }
     const entry: AssetEntry = {
-      id: createId('a'),
+      id,
       name: uniqueName(file.name.replace(/\.[^.]+$/, '') || 'アセット', this.list.map((a) => a.name)),
       type,
-      folder,
+      folder: normalizeFolder(folder),
       mime: blob.type || file.type,
       size: blob.size,
       createdAt: Date.now(),
+      ...(thumb ? { thumb } : {}),
+      ...(info ? { info } : {}),
     };
     await this.store.put(this.editor.project.id, entry.id, blob);
     this.cache.set(entry.id, blob);
@@ -225,26 +275,122 @@ export class AssetService {
   move(id: string, folder: string): void {
     const a = this.find(id);
     if (!a) return;
-    a.folder = folder;
+    a.folder = normalizeFolder(folder);
     this.changed();
   }
 
-  /** アセットを削除する。参照しているマテリアル等は参照を外す */
+  // ------------------------------------------------------------------
+  // フォルダ
+  // ------------------------------------------------------------------
+
+  /** すべてのフォルダ (途中の階層も含む) */
+  folders(): string[] {
+    const p = this.editor.project;
+    const set = new Set<string>();
+    const add = (path: string) => {
+      const parts = normalizeFolder(path).split('/').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join('/'));
+    };
+    for (const a of p.assets) add(a.folder);
+    for (const f of p.prefabs) add(f.folder);
+    for (const f of p.assetFolders) add(f);
+    return [...set].sort((a, b) => a.localeCompare(b, 'ja'));
+  }
+
+  /** 直下のフォルダ */
+  subfolders(parent: string): string[] {
+    const base = normalizeFolder(parent);
+    return this.folders().filter((f) => {
+      if (base === '') return !f.includes('/');
+      return f.startsWith(`${base}/`) && !f.slice(base.length + 1).includes('/');
+    });
+  }
+
+  createFolder(path: string): string | null {
+    const f = normalizeFolder(path);
+    if (!f) return null;
+    const p = this.editor.project;
+    if (!p.assetFolders.includes(f)) p.assetFolders.push(f);
+    this.changed();
+    return f;
+  }
+
+  /** フォルダの名前を変える (中身も移す) */
+  renameFolder(from: string, to: string): boolean {
+    const a = normalizeFolder(from);
+    const b = normalizeFolder(to);
+    if (!a || !b || a === b) return false;
+    const p = this.editor.project;
+    const move = (path: string) => (path === a ? b : path.startsWith(`${a}/`) ? b + path.slice(a.length) : path);
+    for (const x of p.assets) x.folder = move(x.folder);
+    for (const x of p.prefabs) x.folder = move(x.folder);
+    p.assetFolders = [...new Set(p.assetFolders.map(move))];
+    this.changed();
+    return true;
+  }
+
+  /** フォルダを消す (中身は1つ上のフォルダへ移す) */
+  deleteFolder(path: string): void {
+    const a = normalizeFolder(path);
+    if (!a) return;
+    const parent = a.includes('/') ? a.slice(0, a.lastIndexOf('/')) : '';
+    const p = this.editor.project;
+    const move = (f: string) => (f === a ? parent : f.startsWith(`${a}/`) ? parent + (parent ? '/' : '') + f.slice(a.length + 1) : f);
+    for (const x of p.assets) x.folder = move(x.folder);
+    for (const x of p.prefabs) x.folder = move(x.folder);
+    p.assetFolders = [...new Set(p.assetFolders.filter((f) => f !== a).map(move))].filter(Boolean);
+    this.changed();
+  }
+
+  // ------------------------------------------------------------------
+  // 使用箇所・削除
+  // ------------------------------------------------------------------
+
+  /** プロジェクトの中でこのアセットを使っている数 */
+  usages(id: string): number {
+    const p = this.editor.project;
+    let n = 0;
+    const scan = (v: unknown) => {
+      if (v === id) n++;
+      else if (Array.isArray(v)) v.forEach(scan);
+      else if (v && typeof v === 'object') Object.values(v).forEach(scan);
+    };
+    for (const scene of p.scenes) {
+      scan(scene.entities);
+      scan(scene.music);
+      scan(scene.events);
+    }
+    for (const pf of p.prefabs) scan(pf.entities);
+    scan(p.game);
+    return n;
+  }
+
+  /** アセットを削除する。使っている場所 (テクスチャ・UI・音など) の参照は外す */
   async remove(id: string): Promise<void> {
     const p = this.editor.project;
     const idx = p.assets.findIndex((a) => a.id === id);
     if (idx < 0) return;
     p.assets.splice(idx, 1);
-    for (const scene of p.scenes) {
-      for (const e of Object.values(scene.entities)) {
-        if (e.mesh?.material.texture === id) e.mesh.material.texture = null;
+    const clear = (obj: unknown) => {
+      if (!obj || typeof obj !== 'object') return;
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        if (v === id) (obj as Record<string, unknown>)[k] = k === 'sound' || k === 'source' ? '' : null;
+        else if (v && typeof v === 'object') clear(v);
       }
+    };
+    for (const scene of p.scenes) {
+      clear(scene.entities);
+      clear(scene.events);
+      if (scene.music.source === id) scene.music.source = null;
     }
+    for (const pf of p.prefabs) clear(pf.entities);
+    clear(p.game);
     this.cache.delete(id);
     const url = this.urls.get(id);
     if (url) URL.revokeObjectURL(url);
     this.urls.delete(id);
     invalidateAssetTexture(id);
+    invalidateModel(id);
     await this.store.remove(p.id, id);
     this.changed();
     // 表示中のシーンを更新
