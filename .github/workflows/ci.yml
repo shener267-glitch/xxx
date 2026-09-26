@@ -1,0 +1,37 @@
+# プッシュ・プルリクエストごとに型チェック / 単体テスト / ビルド / E2E テストを実行する
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 型チェック
+        run: npm run typecheck
+      - name: 単体テスト
+        run: npm test
+      - name: ビルド
+        run: npm run build
+      - name: Playwright (Chromium) のインストール
+        run: npx playwright install --with-deps chromium
+      - name: E2E テスト (スマホ縦画面 + PC / GitHub Pages と同じサブパスで配信)
+        run: npm run test:e2e
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results
+          retention-days: 7

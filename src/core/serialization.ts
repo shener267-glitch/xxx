@@ -1,0 +1,254 @@
+import { defaultCamera, defaultLight, defaultMaterial, defaultMesh, defaultTransform } from './catalog';
+import type {
+  CameraStateData,
+  ComponentData,
+  EntityData,
+  EntityKind,
+  LightType,
+  PrimitiveShape,
+  ProjectData,
+  SceneData,
+  SceneFile,
+  Vec3,
+} from './types';
+import { PROJECT_FORMAT, PROJECT_VERSION, SCENE_FORMAT } from './types';
+import { clone, createId, normalizeHex } from './util';
+
+/**
+ * 保存データの検証・修復・移行。
+ * 外部から読み込んだ JSON や古いバージョンの保存データを、
+ * 現在のデータモデルとして安全に扱える形に整える。
+ */
+
+export class ProjectFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectFormatError';
+  }
+}
+
+type Obj = Record<string, unknown>;
+
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+const str = (v: unknown, d: string): string => (typeof v === 'string' ? v : d);
+const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
+const color = (v: unknown, d: string): string => (typeof v === 'string' ? (normalizeHex(v) ?? d) : d);
+const vec3 = (v: unknown, d: Vec3): Vec3 =>
+  Array.isArray(v) && v.length === 3 ? [num(v[0], d[0]), num(v[1], d[1]), num(v[2], d[2])] : [...d];
+
+const SHAPES: PrimitiveShape[] = ['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'];
+const LIGHTS: LightType[] = ['directional', 'point', 'spot', 'hemisphere', 'ambient'];
+const KINDS: EntityKind[] = ['empty', 'mesh', 'camera', 'light'];
+
+function sanitizeEntity(raw: Obj, id: string): EntityData {
+  const kind = KINDS.includes(raw.kind as EntityKind) ? (raw.kind as EntityKind) : 'empty';
+  const t = isObj(raw.transform) ? raw.transform : {};
+  const dt = defaultTransform();
+  const e: EntityData = {
+    id,
+    name: str(raw.name, 'オブジェクト').slice(0, 100),
+    kind,
+    parent: typeof raw.parent === 'string' ? raw.parent : null,
+    children: Array.isArray(raw.children) ? raw.children.filter((c): c is string => typeof c === 'string') : [],
+    visible: bool(raw.visible, true),
+    locked: bool(raw.locked, false),
+    transform: {
+      position: vec3(t.position, dt.position),
+      rotation: vec3(t.rotation, dt.rotation),
+      scale: vec3(t.scale, dt.scale),
+    },
+    components: [],
+    tags: Array.isArray(raw.tags) ? raw.tags.filter((x): x is string => typeof x === 'string') : [],
+  };
+
+  if (kind === 'mesh') {
+    const m = isObj(raw.mesh) ? raw.mesh : {};
+    const shape = SHAPES.includes(m.shape as PrimitiveShape) ? (m.shape as PrimitiveShape) : 'cube';
+    const dm = defaultMesh(shape);
+    const mat = isObj(m.material) ? m.material : {};
+    const d = defaultMaterial();
+    e.mesh = {
+      shape,
+      castShadow: bool(m.castShadow, dm.castShadow),
+      receiveShadow: bool(m.receiveShadow, dm.receiveShadow),
+      material: {
+        preset: mat.preset === 'unlit' ? 'unlit' : 'standard',
+        color: color(mat.color, d.color),
+        roughness: num(mat.roughness, d.roughness),
+        metalness: num(mat.metalness, d.metalness),
+        opacity: num(mat.opacity, d.opacity),
+        emissive: color(mat.emissive, d.emissive),
+        emissiveIntensity: num(mat.emissiveIntensity, d.emissiveIntensity),
+        wireframe: bool(mat.wireframe, d.wireframe),
+      },
+    };
+  } else if (kind === 'light') {
+    const l = isObj(raw.light) ? raw.light : {};
+    const type = LIGHTS.includes(l.type as LightType) ? (l.type as LightType) : 'point';
+    const d = defaultLight(type);
+    e.light = {
+      type,
+      color: color(l.color, d.color),
+      groundColor: color(l.groundColor, d.groundColor),
+      intensity: num(l.intensity, d.intensity),
+      distance: num(l.distance, d.distance),
+      angle: num(l.angle, d.angle),
+      penumbra: num(l.penumbra, d.penumbra),
+      castShadow: bool(l.castShadow, d.castShadow),
+    };
+  } else if (kind === 'camera') {
+    const c = isObj(raw.camera) ? raw.camera : {};
+    const d = defaultCamera();
+    e.camera = {
+      fov: num(c.fov, d.fov),
+      near: num(c.near, d.near),
+      far: num(c.far, d.far),
+      main: bool(c.main, d.main),
+    };
+  }
+
+  if (Array.isArray(raw.components)) {
+    for (const c of raw.components) {
+      if (!isObj(c) || typeof c.type !== 'string') continue;
+      const comp: ComponentData = {
+        id: str(c.id, createId('c')),
+        type: c.type,
+        enabled: bool(c.enabled, true),
+        props: isObj(c.props) ? clone(c.props) : {},
+      };
+      e.components.push(comp);
+    }
+  }
+  return e;
+}
+
+/** 親子関係の整合性を修復する (壊れた参照・循環・孤立ノード) */
+function repairHierarchy(scene: SceneData): void {
+  const ents = scene.entities;
+  const seen = new Set<string>();
+  const newRoots: string[] = [];
+
+  const visit = (id: string, parent: string | null): boolean => {
+    const e = ents[id];
+    if (!e || seen.has(id)) return false;
+    seen.add(id);
+    e.parent = parent;
+    e.children = e.children.filter((c) => visit(c, id));
+    return true;
+  };
+  for (const id of scene.roots) if (visit(id, null)) newRoots.push(id);
+  // どこからも参照されていないエンティティはルートに救出する
+  for (const id of Object.keys(ents)) {
+    if (!seen.has(id) && visit(id, null)) newRoots.push(id);
+  }
+  scene.roots = newRoots;
+}
+
+function sanitizeCameraState(v: unknown): CameraStateData | null {
+  if (!isObj(v)) return null;
+  return {
+    target: vec3(v.target, [0, 0, 0]),
+    yaw: num(v.yaw, 35),
+    pitch: num(v.pitch, 28),
+    distance: Math.max(0.1, num(v.distance, 12)),
+  };
+}
+
+export function sanitizeScene(raw: unknown): SceneData {
+  if (!isObj(raw)) throw new ProjectFormatError('シーンデータの形式が正しくありません');
+  const entitiesRaw = isObj(raw.entities) ? raw.entities : {};
+  const entities: Record<string, EntityData> = {};
+  for (const [id, e] of Object.entries(entitiesRaw)) {
+    if (isObj(e)) entities[id] = sanitizeEntity(e, id);
+  }
+  const env = isObj(raw.environment) ? raw.environment : {};
+  const scene: SceneData = {
+    id: str(raw.id, createId('s')),
+    name: str(raw.name, 'シーン').slice(0, 100),
+    roots: Array.isArray(raw.roots) ? raw.roots.filter((r): r is string => typeof r === 'string') : [],
+    entities,
+    environment: { background: color(env.background, '#1f232b') },
+    editorCamera: sanitizeCameraState(raw.editorCamera),
+    bookmarks: Array.isArray(raw.bookmarks)
+      ? raw.bookmarks.flatMap((b) => {
+          if (!isObj(b)) return [];
+          const state = sanitizeCameraState(b.state);
+          return state ? [{ id: str(b.id, createId('b')), name: str(b.name, 'ビュー'), state }] : [];
+        })
+      : [],
+    playerId: typeof raw.playerId === 'string' ? raw.playerId : null,
+  };
+  repairHierarchy(scene);
+  if (scene.playerId && !scene.entities[scene.playerId]) scene.playerId = null;
+  return scene;
+}
+
+/** 旧バージョンの保存データを現在の形式へ移行する (将来のスキーマ変更用) */
+function migrate(raw: Obj): Obj {
+  const version = num(raw.version, 1);
+  if (version > PROJECT_VERSION) {
+    throw new ProjectFormatError('新しいバージョンの Pocket Engine で作られたデータのため読み込めません');
+  }
+  // version 1 が最初の形式のため、現在は移行処理なし
+  return raw;
+}
+
+export function sanitizeProject(input: unknown): ProjectData {
+  if (!isObj(input)) throw new ProjectFormatError('プロジェクトファイルの形式が正しくありません');
+  if (input.format !== PROJECT_FORMAT) {
+    throw new ProjectFormatError('Pocket Engine のプロジェクトファイルではありません');
+  }
+  const raw = migrate(input);
+  const scenesRaw = Array.isArray(raw.scenes) ? raw.scenes : [];
+  const scenes = scenesRaw.map(sanitizeScene);
+  if (scenes.length === 0) throw new ProjectFormatError('シーンが1つも含まれていません');
+  // シーン ID の重複を修正
+  const ids = new Set<string>();
+  for (const s of scenes) {
+    if (ids.has(s.id)) s.id = createId('s');
+    ids.add(s.id);
+  }
+  const pickScene = (v: unknown) => (typeof v === 'string' && ids.has(v) ? v : scenes[0].id);
+  const now = Date.now();
+  return {
+    format: PROJECT_FORMAT,
+    version: PROJECT_VERSION,
+    id: str(raw.id, createId('p')),
+    name: str(raw.name, '無題のゲーム').slice(0, 100),
+    createdAt: num(raw.createdAt, now),
+    updatedAt: num(raw.updatedAt, now),
+    scenes,
+    activeSceneId: pickScene(raw.activeSceneId),
+    startSceneId: pickScene(raw.startSceneId),
+    assets: Array.isArray(raw.assets) ? (clone(raw.assets) as ProjectData['assets']) : [],
+    prefabs: Array.isArray(raw.prefabs) ? (clone(raw.prefabs) as ProjectData['prefabs']) : [],
+  };
+}
+
+export function parseProjectJson(text: string): ProjectData {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new ProjectFormatError('JSON として読み込めませんでした');
+  }
+  return sanitizeProject(data);
+}
+
+export function sceneToFile(scene: SceneData): SceneFile {
+  return { format: SCENE_FORMAT, version: PROJECT_VERSION, scene: clone(scene) };
+}
+
+export function parseSceneJson(text: string): SceneData {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new ProjectFormatError('JSON として読み込めませんでした');
+  }
+  if (!isObj(data) || data.format !== SCENE_FORMAT) {
+    throw new ProjectFormatError('Pocket Engine のシーンファイルではありません');
+  }
+  return sanitizeScene(data.scene);
+}
