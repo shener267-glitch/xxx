@@ -111,6 +111,14 @@ async function cdp(page: Page): Promise<CDPSession> {
   return page.context().newCDPSession(page);
 }
 
+/**
+ * 指を離す前に少し止める。動かしながら離すと Chrome がフリング (慣性スクロール) と判定し、
+ * 直後のタップが「フリングを止める操作」として吸収されてクリックにならないことがあるため。
+ */
+async function settleBeforeRelease(page: Page): Promise<void> {
+  await page.waitForTimeout(150);
+}
+
 export async function touchDrag(page: Page, from: Pt, to: Pt, steps = 12): Promise<void> {
   const s = await cdp(page);
   await s.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x, y: from.y, id: 1 }] });
@@ -121,6 +129,7 @@ export async function touchDrag(page: Page, from: Pt, to: Pt, steps = 12): Promi
       touchPoints: [{ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 1 }],
     });
   }
+  await settleBeforeRelease(page);
   await s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await s.detach();
 }
@@ -145,6 +154,7 @@ export async function twoFinger(page: Page, a: [Pt, Pt], b: [Pt, Pt], steps = 12
       ],
     });
   }
+  await settleBeforeRelease(page);
   await s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await s.detach();
 }

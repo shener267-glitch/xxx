@@ -59,6 +59,7 @@ export class ViewportInput {
   private mode: Mode = 'idle';
   private pointers = new Map<number, PointerInfo>();
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private longPressFrame = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
   private multi = { dist: 0, midX: 0, midY: 0, angle: 0 };
   private drag: ObjectDrag | null = null;
@@ -148,10 +149,16 @@ export class ViewportInput {
       if (e.pointerType !== 'mouse') {
         this.longPressTimer = setTimeout(() => {
           this.longPressTimer = null;
-          if (this.mode === 'pending' && this.pointers.size === 1) {
-            this.setMode('blocked');
-            this.handlers.onLongPress(p.x, p.y);
-          }
+          // 描画が重い端末では指の移動イベントが遅れて届くことがある。
+          // 溜まっている入力を先に処理させるため、判定は次のフレームで行う
+          // (その間に指が動いていればドラッグとして扱われ、長押しにはならない)
+          this.longPressFrame = requestAnimationFrame(() => {
+            this.longPressFrame = 0;
+            if (this.mode === 'pending' && this.pointers.size === 1 && this.pointers.get(p.id) === p) {
+              this.setMode('blocked');
+              this.handlers.onLongPress(p.x, p.y);
+            }
+          });
         }, LONG_PRESS_MS);
       }
     } else if (this.pointers.size === 2) {
@@ -289,6 +296,8 @@ export class ViewportInput {
   private clearLongPress(): void {
     if (this.longPressTimer) clearTimeout(this.longPressTimer);
     this.longPressTimer = null;
+    if (this.longPressFrame) cancelAnimationFrame(this.longPressFrame);
+    this.longPressFrame = 0;
   }
 
   // ------------------------------------------------------------------
