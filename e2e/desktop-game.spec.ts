@@ -17,10 +17,18 @@ test('キーボード: WASD で移動・Space でジャンプ・E で攻撃', as
     return [p.x, p.y, p.z];
   });
 
+  // キーを「ゲーム内の時間」で指定した秒数だけ押し続ける
+  // (ソフトウェア描画の環境では 1 フレームが長く、フレームの時間には上限があるため、実時間で待つと進み方が変わる)
+  const gameTime = () => evalApp(page, (app) => app.play.runtime.time as number);
+  const holdFor = async (seconds: number) => {
+    const t0 = await gameTime();
+    await expect.poll(gameTime, { intervals: [50], timeout: 20_000 }).toBeGreaterThan(t0 + seconds);
+  };
+
   // W で前へ
   const p0 = await pos();
   await page.keyboard.down('w');
-  await page.waitForTimeout(900);
+  await holdFor(0.9);
   await page.keyboard.up('w');
   expect((await pos())[2]).toBeLessThan(p0[2] - 0.3);
 
@@ -28,7 +36,7 @@ test('キーボード: WASD で移動・Space でジャンプ・E で攻撃', as
   const p1 = await pos();
   await page.keyboard.down('Shift');
   await page.keyboard.down('d');
-  await page.waitForTimeout(700);
+  await holdFor(0.7);
   await page.keyboard.up('d');
   await page.keyboard.up('Shift');
   expect((await pos())[0]).toBeGreaterThan(p1[0] + 0.3);
