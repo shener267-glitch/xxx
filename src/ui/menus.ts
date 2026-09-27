@@ -248,6 +248,18 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
       : []),
     'separator',
     { label: 'フォーカス', icon: 'focus', shortcut: 'F', onSelect: () => ed.requestFocus(ids) },
+    ...(e.kind !== 'ui'
+      ? [
+          {
+            label: '地面に置く (下にそろえる)',
+            icon: 'arrowDown',
+            testId: 'menu-drop',
+            onSelect: () => {
+              if (!ctx.viewport.dropToGround(ids)) toast('すでに地面の上にあります', 'info', 1400);
+            },
+          } as ActionItem,
+        ]
+      : []),
     {
       label: e.visible ? '非表示にする' : '表示する',
       icon: e.visible ? 'eyeOff' : 'eye',

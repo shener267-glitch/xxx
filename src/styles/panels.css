@@ -716,14 +716,15 @@
 /* 追加シート: 種類へ移動するボタン (スクロールしても上に残す) */
 .catalog-nav {
   position: sticky;
-  top: 0;
+  /* 一覧の上の余白 (8px) も覆い、後ろの行が透けて見えないようにする */
+  top: -8px;
   z-index: 2;
   display: flex;
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
-  margin: 0 -16px;
-  padding: 2px 16px 8px;
+  margin: -8px -16px 0;
+  padding: 10px 16px 8px;
   background: var(--panel);
 }
 
@@ -742,7 +743,7 @@
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
   gap: 8px;
 }
 
@@ -787,7 +788,7 @@
 }
 
 .catalog-label {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   text-align: center;
   line-height: 1.2;

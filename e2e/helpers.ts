@@ -253,7 +253,7 @@ export async function emptyPoint(page: Page): Promise<Pt> {
 // ------------------------------------------------------------------
 
 /** テンプレートから新しいプロジェクトを作る (UI 操作) */
-export async function createFromTemplate(page: Page, id: 'coins' | 'adventure'): Promise<void> {
+export async function createFromTemplate(page: Page, id: 'coins' | 'adventure' | 'castle'): Promise<void> {
   await page.getByTestId('main-menu').tap();
   await page.getByTestId('menu-projects').tap();
   await page.getByTestId('project-template').tap();

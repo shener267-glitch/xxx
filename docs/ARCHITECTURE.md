@@ -67,6 +67,14 @@
 - `GizmoController` … Three.js の TransformControls を DOM に接続せずに使い、入力を明示的に渡す。
   複数選択時は中心の「ピボット」を動かし、その変化量を全員に適用する。
   中央付近のハンドルと選択物が重なる場合は、指で扱いやすい直接ドラッグを優先する。
+- ボトムシートとの関係 (Phase 11): `EditorCamera.setInsets({ right, bottom })` が `PerspectiveCamera.setViewOffset` で
+  描画範囲をずらし、**シートに隠れていない部分の中心**にビューを寄せる (縦の画角はシートの高さに合わせて補正、
+  ギズモの大きさも `GizmoController.setSizeScale` で補正)。サムネイルは `withoutInsets()` で補正なしに撮る。
+  シートを開いたときに選択物が見える範囲の外なら `revealSelection()` でカメラを寄せる
+- タッチの選択 (Phase 11): `EditorViewport.pick(x, y, tolerance)` は中心の光線で当たらなければ周囲 (半径 16px) の光線も試す。
+  `pickAll()` で重なった物を手前から並べ、`App` が同じ場所の 2 回目のタップで次の物を選ぶ。
+  `ViewportInput` の 2 本指操作はピンチ / ひねり / 平行移動それぞれに「遊び」を設け、始まった操作だけを適用する
+- `EditorViewport.dropToGround(ids)` … 物の下の面から下向きに光線を飛ばし (自分と子は除く)、地面・下の物・地形の上にそろえる
 
 ## Play Mode (runtime/, app/PlayController.ts)
 
@@ -185,6 +193,18 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
   プレイヤーが画質 (自動 / 低 / 中 / 高) と全画面 (`runtime/fullscreen.ts`、webkit 付きにも対応) を足す
 - 画面の向き: `GameSettings.orientation`。スマホで合わなければ案内、PC で縦向きのゲームは縦長の枠
 
+### 制作を助ける仕組み (Phase 11)
+
+- 問題チェック: `core/diagnostics.ts` の `checkProject(project, sceneId?)` が DOM に依存せずに `Issue`
+  (`level` error / warn / info、原因 `title` と直し方 `detail`、関係する `entityId` / `ruleId` / `timelineId`、その場で直せる `fix`) を返す。
+  デバッグコンソールの「チェック」タブ・3D ビューの「問題 N」・Play 時の通知が同じ結果を使う
+- わかりやすいエラー: `core/errorHints.ts` の `explainError()` がよくあるエラーを言い換え、`Logger` の警告・エラーに `hint` として付く
+- イベントのひな形: `core/eventTemplates.ts` (`EVENT_TEMPLATES`)。既存のトリガー / 条件 / 動作のブロックでイベントを組み立てるだけなので、
+  ランタイムの変更は無い。イベントと変数は `addEventsWithVariables()` で 1 回の Undo にまとめる
+- オブジェクトの役割: `core/catalog.ts` の `entityRole()` (コンポーネント・タグ・シーンのプレイヤー指定から推測) をシーン一覧に表示
+- サンプルゲーム: `core/templates.ts` の `castle` テンプレート (2 シーン・NPC・スイッチ・ドア・鍵・ボス・宝箱)。
+  E2E (`e2e/phase11.spec.ts`) で最初から最後まで遊んでクリアできることを確かめている
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -215,7 +235,10 @@ registerComponent({
 - UI フレームワークは使わず、小さな DOM ヘルパー (`ui/dom.ts`) とクラスで構成
 - パネルは Editor のイベントを購読し、構造が変わったときだけ再構築、値の変化は部分更新
 - スマホ向けの工夫: 44px 以上のタッチターゲット、専用テンキー (iOS の数字キーボードにマイナスが無い問題の回避)、
-  ボトムシート、ゴーストクリック対策、ホバー表現はホバー可能な端末のみ、セーフエリア対応
+  ボトムシート、ゴーストクリック対策、ホバー表現はホバー可能な端末のみ、セーフエリア対応、
+  iOS Safari のページ拡大の防止 (`runtime/pageZoom.ts`)
+- 縦画面のボトムシートは下のツールバーの上に重なって開き (`BottomSheet.underlap()`)、見出しにパネルごとの操作
+  (シーンの切り替えなど) を置ける。インスペクターは見出しと項目へのジャンプを上に固定する
 
 ## 今後の拡張ポイント
 

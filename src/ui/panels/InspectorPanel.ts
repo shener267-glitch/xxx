@@ -589,7 +589,17 @@ export class InspectorPanel {
         toast(this.uniformScale ? '縦横比を固定して拡大縮小します' : '各軸を個別に変更します', 'info', 1400);
       },
     });
-    return this.section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
+    // 大きさを変えて地面に埋まった / 浮いた物を、下の面にそろえる
+    const drop = button({
+      icon: 'arrowDown',
+      title: '地面に置く (下にそろえる)',
+      class: 'icon-btn small ghost',
+      testId: 'insp-drop',
+      onClick: () => {
+        if (!this.ctx.viewport.dropToGround(this.ids)) toast('すでに地面の上にあります', 'info', 1400);
+      },
+    });
+    return this.section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1, drop), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
       testId: 'sec-transform',
     });
   }

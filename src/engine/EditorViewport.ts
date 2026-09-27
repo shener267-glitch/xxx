@@ -19,8 +19,10 @@ import {
 } from 'three';
 import type { BufferGeometry, Camera } from 'three';
 import type { LineBasicMaterial, Object3D } from 'three';
+import { commitTransforms } from '../core/actions';
 import type { Editor } from '../core/Editor';
-import type { Vec3 } from '../core/types';
+import type { TransformData, Vec3 } from '../core/types';
+import { clone } from '../core/util';
 import { debounce, snapTo } from '../core/util';
 import { sharedUniforms } from './materials';
 import { computeColliderShape, hasPhysics, readCollider } from './colliderShapes';
@@ -553,6 +555,46 @@ export class EditorViewport {
     return ids;
   }
 
+  /**
+   * 選んだ物の底を、真下の地面 (または下にある物の上面) に合わせる。
+   * 大きさを変えて地面に埋まった物や、宙に浮いた物を置き直すのに使う。動かした数を返す
+   */
+  dropToGround(ids: readonly string[]): number {
+    const model = this.editor.scene;
+    const targets = model.topLevel(ids).filter((id) => {
+      const e = model.get(id);
+      return e && !e.locked && e.kind !== 'ui' && this.bridge.get(id);
+    });
+    const before = new Map<string, TransformData>();
+    for (const id of targets) {
+      const obj = this.bridge.get(id)!;
+      const box = this.computeBounds(obj, new Box3());
+      if (box.isEmpty()) continue;
+      // 物の上から真下へ光線を飛ばし、自分以外で最初に当たる面を探す
+      const skip = new Set<Object3D>();
+      obj.traverse((o) => skip.add(o));
+      const cx = (box.min.x + box.max.x) / 2;
+      const cz = (box.min.z + box.max.z) / 2;
+      const ray = new Raycaster(new Vector3(cx, box.max.y + 0.01, cz), new Vector3(0, -1, 0));
+      const meshes: Object3D[] = [];
+      this.bridge.root.traverse((o) => {
+        if (o instanceof Mesh && !skip.has(o) && isShown(o) && !o.userData.noPick) meshes.push(o);
+      });
+      const hit = ray.intersectObjects(meshes, false)[0];
+      const surface = hit ? hit.point.y : (this.terrainHit(new Ray(new Vector3(cx, 1000, cz), new Vector3(0, -1, 0)))?.point.y ?? 0);
+      const dy = Math.round((surface - box.min.y) * 1000) / 1000;
+      if (Math.abs(dy) < 0.001) continue;
+      const e = model.require(id);
+      before.set(id, clone(e.transform));
+      // ワールドでの移動量を親の座標系に直す
+      const parentInv = model.worldMatrix(e.parent).invert();
+      const world = new Vector3().setFromMatrixPosition(model.worldMatrix(id)).add(new Vector3(0, dy, 0)).applyMatrix4(parentInv);
+      model.setTransform(id, { ...e.transform, position: [world.x, world.y, world.z].map((v) => Math.round(v * 1000) / 1000) as Vec3 });
+    }
+    if (before.size > 0) commitTransforms(this.editor, before, '地面に置く');
+    return before.size;
+  }
+
   /** 覆われていない範囲 (画面座標) */
   visibleClientRect(): { left: number; top: number; right: number; bottom: number } {
     const r = this.element.getBoundingClientRect();
@@ -659,7 +701,8 @@ export class EditorViewport {
     const step = this.editor.settings.snapEnabled ? this.editor.settings.snapMove : 0.5;
     const base: Vec3 = [snapTo(p.x, step), 0, snapTo(p.z, step)];
     // 場所を指定された場合はそのまま。画面中央に置く場合は既存の物と重ならない場所を探す
-    const spot = at ? base : this.findFreeSpot(base, Math.max(1, step));
+    // 置いた物どうしが重ならないよう、1.5m 以上はなす
+    const spot = at ? base : this.findFreeSpot(base, Math.max(1.5, step));
     // 地形の上なら、その表面の高さ
     const y = this.surfaceHeight(spot[0], spot[2]);
     return [spot[0], y, spot[2]];

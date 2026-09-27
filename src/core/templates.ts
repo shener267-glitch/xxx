@@ -387,23 +387,23 @@ function towerScene(): SceneData {
   shape(scene, 'cube', '壁 南', [0, 3, 12], [24, 6, 1], DARK_STONE);
   shape(scene, 'cube', '壁 西', [-12, 3, 0], [1, 6, 24], DARK_STONE);
   shape(scene, 'cube', '壁 東', [12, 3, 0], [1, 6, 24], DARK_STONE);
-  // 階段 (0.8m ずつ上がる) と頂上の床
-  shape(scene, 'cube', '階段1', [-6, 0.4, 6], [3, 0.8, 3], STONE);
-  shape(scene, 'cube', '階段2', [-6, 0.8, 3], [3, 1.6, 3], STONE);
-  shape(scene, 'cube', '階段3', [-6, 1.2, 0], [3, 2.4, 3], STONE);
-  shape(scene, 'cube', '階段4', [-6, 1.6, -3], [3, 3.2, 3], STONE);
-  shape(scene, 'cube', '頂上の床', [0, 1.6, -7], [9, 3.2, 6], STONE);
-  add(scene, 'game-coin', '階段のコイン1', [-6, 2.2, 3], (e) => props(e, 'item', { kind: 'score', value: 20 }));
-  add(scene, 'game-coin', '階段のコイン2', [-6, 3.0, 0], (e) => props(e, 'item', { kind: 'score', value: 20 }));
-  add(scene, 'game-coin', '階段のコイン3', [-6, 3.8, -3], (e) => props(e, 'item', { kind: 'score', value: 20 }));
+  // 階段 (0.6m ずつ上がる。ジャンプで楽に上れる高さ) と頂上の床
+  shape(scene, 'cube', '階段1', [-6, 0.3, 6], [3, 0.6, 3], STONE);
+  shape(scene, 'cube', '階段2', [-6, 0.6, 3], [3, 1.2, 3], STONE);
+  shape(scene, 'cube', '階段3', [-6, 0.9, 0], [3, 1.8, 3], STONE);
+  shape(scene, 'cube', '階段4', [-6, 1.2, -3], [3, 2.4, 3], STONE);
+  shape(scene, 'cube', '頂上の床', [0, 1.2, -7], [9, 2.4, 6], STONE);
+  add(scene, 'game-coin', '階段のコイン1', [-6, 1.8, 3], (e) => props(e, 'item', { kind: 'score', value: 20 }));
+  add(scene, 'game-coin', '階段のコイン2', [-6, 2.4, 0], (e) => props(e, 'item', { kind: 'score', value: 20 }));
+  add(scene, 'game-coin', '階段のコイン3', [-6, 3.0, -3], (e) => props(e, 'item', { kind: 'score', value: 20 }));
 
-  const chest = add(scene, 'game-goal', '宝箱', [2, 3.7, -8], (e) => {
+  const chest = add(scene, 'game-goal', '宝箱', [2, 2.9, -8], (e) => {
     e.mesh!.shape = 'cube';
     e.transform.scale = [1.4, 1, 1];
     Object.assign(e.mesh!.material, { color: '#d9a520', metalness: 0.7, roughness: 0.35, emissive: '#6b4a00', emissiveIntensity: 0.4 });
     props(e, 'goal', { requireItem: '王家の紋章', message: '宝物を手に入れた！' });
   });
-  add(scene, 'fx-magic', '宝箱のキラキラ', [2, 4.4, -8]);
+  add(scene, 'fx-magic', '宝箱のキラキラ', [2, 3.6, -8]);
   const boss = add(scene, 'game-enemy', 'ボス スライム', [4, 0.9, 3], (e) => {
     e.mesh!.shape = 'sphere';
     e.transform.scale = [1.8, 1.8, 1.8];

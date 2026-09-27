@@ -620,6 +620,15 @@
   display: none;
 }
 
+.context-bar.ui-only .ctx-tools,
+.context-bar.ui-only [data-testid='ctx-focus'] {
+  display: none !important;
+}
+
+.app:not(.layout-side):not([data-sheet='closed']) .context-bar.ui-only .ctx-chip {
+  display: flex;
+}
+
 .multi-banner {
   position: absolute;
   top: 10px;

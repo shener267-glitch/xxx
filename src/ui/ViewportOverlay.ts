@@ -256,6 +256,8 @@ export class ViewportOverlay {
     const text = this.banner.querySelector('.multi-text');
     if (text) text.textContent = `複数選択: タップで追加・解除 (${list.length}個)`;
     if (!show) return;
+    // 画面の UI は 3D の位置を持たないので、移動・回転・拡大とフォーカスは出さない
+    this.contextBar.classList.toggle('ui-only', list.every((e) => e.kind === 'ui'));
     const active = ed.activeEntity ?? list[0];
     this.ctxIcon.innerHTML = icon(entityIcon(active), 18);
     this.ctxName.textContent = list.length > 1 ? `${list.length}個を選択` : active.name;

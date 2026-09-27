@@ -269,7 +269,8 @@
 .g-toast {
   position: absolute;
   left: 50%;
-  top: calc(var(--g-top) + 58px + var(--safe-top, 0px));
+  /* 画面上部に置いた UI の文字 (目的など) に重ならないよう、少し下に出す */
+  top: max(calc(var(--g-top) + 120px + var(--safe-top, 0px)), 28%);
   transform: translate(-50%, -8px);
   max-width: calc(100% - 40px);
   padding: 8px 16px;
