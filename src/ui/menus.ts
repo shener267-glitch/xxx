@@ -127,7 +127,18 @@ export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'ad
 }
 
 /** 置く場所に関係なく、決まった位置に置く物 (カメラ・全体を照らすライト) */
-const FIXED_POSITION = new Set<CreateKind>(['camera', 'light-directional', 'light-hemisphere', 'light-ambient']);
+// 世界全体に関わる物 (地形・水面・環境の光・カメラ) は、見ている場所ではなく決まった位置に置く
+const FIXED_POSITION = new Set<CreateKind>([
+  'camera',
+  'light-directional',
+  'light-hemisphere',
+  'light-ambient',
+  'terrain-flat',
+  'terrain-hills',
+  'terrain-island',
+  'terrain-mountains',
+  'water',
+]);
 
 export function addFromCatalog(ctx: AppContext, kind: CreateKind, at?: { x: number; y: number }): string | null {
   const vp = ctx.viewport;
