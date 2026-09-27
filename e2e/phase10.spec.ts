@@ -191,8 +191,11 @@ test('1 つの HTML で書き出して、ファイルを開くだけで遊べる
   await expect(gamePage.getByTestId('player-rotate')).toBeVisible();
   await gamePage.setViewportSize({ width: 844, height: 390 });
   await expect(gamePage.getByTestId('player-rotate')).toBeHidden();
-  // NPC と会話できる (イベント・UI も動く)
   expect(await gamePage.evaluate(() => (window as any).__pocketPlayer.runtime.hasPlayer)).toBe(true);
+  // タイトル画面なしで始めるゲームでも「タイトルへ」ではタイトル画面を出す
+  await gamePage.getByTestId('game-pause').tap();
+  await gamePage.getByTestId('game-to-title').tap();
+  await waitTitle(gamePage);
   expect(external).toEqual([]);
   expect(gameErrors.filter((e) => !IGNORE.test(e))).toEqual([]);
 });

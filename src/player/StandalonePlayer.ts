@@ -117,9 +117,10 @@ export class StandalonePlayer {
     this.root.classList.toggle('frame-portrait', !coarse && want === 'portrait' && landscape);
   }
 
-  start(): void {
+  /** 最初のシーンから始める (タイトル画面を出すかはゲームの設定。「タイトルへ」では必ず出す) */
+  start(showTitle = this.project.game.startFromTitle): void {
     const first = this.project.startSceneId && this.project.scenes.some((s) => s.id === this.project.startSceneId) ? this.project.startSceneId : this.project.scenes[0]?.id;
-    this.launch(first, this.project.game.startFromTitle, null);
+    this.launch(first, showTitle, null);
   }
 
   private launch(sceneId: string | undefined, showTitle: boolean, carry: SaveData | null): void {
@@ -160,7 +161,7 @@ export class StandalonePlayer {
       const rt = this.runtime;
       if (!rt) return;
       if (kind === 'scene' && sceneId) this.launch(sceneId, false, rt.carryOverState());
-      else if (kind === 'title') this.start();
+      else if (kind === 'title') this.start(true);
       else if (kind === 'restart') this.launch(rt.sceneData.id, false, null);
     }, 0);
   }
