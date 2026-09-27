@@ -35,6 +35,7 @@
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
+  transition: opacity 0.4s ease;
 }
 
 .g-hud-left,
@@ -616,6 +617,10 @@
 .game-ui.cutscene .g-controls,
 .game-ui.cutscene .g-custom [data-interactive] {
   visibility: hidden;
+}
+/* HP・スコアなどは上の黒帯に半分隠れるので、カットシーンの間は薄く消す */
+.game-ui.cutscene .g-hud {
+  opacity: 0;
 }
 .game-ui::before,
 .game-ui::after {
