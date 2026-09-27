@@ -4,6 +4,7 @@ import { TEMPLATES } from '../core/templates';
 import type { AppContext } from './context';
 import { button, clear, h } from './dom';
 import { icon } from './icons';
+import { exportAllProjects, importProjectsFromFile, openBackupsModal, storageSummary } from './dataManager';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
 function formatDate(t: number): string {
@@ -69,24 +70,27 @@ export function openProjectsModal(ctx: AppContext): void {
         icon: 'upload',
         label: 'ファイルから読み込み',
         class: 'secondary',
-        onClick: () => {
-          ctx.projects.importProject().then(
-            (p) => {
-              if (p) {
-                modal.close();
-                toast(`「${p.name}」を読み込みました`, 'success');
-              }
-            },
-            (err) => {
-              logger.error('読み込みに失敗しました', 'プロジェクト', err);
-              toast(err instanceof Error ? err.message : '読み込みに失敗しました', 'error', 3500);
-            },
-          );
+        testId: 'project-import',
+        onClick: async () => {
+          if (await importProjectsFromFile(ctx)) {
+            if (ctx.editor.project.id !== openedId) modal.close();
+            else void load();
+          }
         },
+      }),
+      button({
+        icon: 'download',
+        label: 'すべてバックアップ (.zip)',
+        class: 'secondary',
+        testId: 'project-export-all',
+        onClick: () => void exportAllProjects(ctx),
       }),
     ),
     list,
+    storageSummary(ctx),
+    h('p', { class: 'field-note', text: '.pocket.zip (アセットを含む) と .json のどちらも読み込めます。すべてバックアップした .zip を読み込むと、中のプロジェクトがすべて追加されます。' }),
   );
+  const openedId = ctx.editor.project.id;
   const modal = openModal({ title: 'プロジェクト', content, className: 'projects-modal', testId: 'projects-modal' });
 
   const render = (metas: ProjectMeta[]) => {
@@ -128,8 +132,29 @@ export function openProjectsModal(ctx: AppContext): void {
           icon: 'more',
           title: 'メニュー',
           class: 'icon-btn ghost',
+          testId: `project-menu-${m.id}`,
           onClick: () =>
             actionSheet(m.name, [
+              {
+                label: '書き出し (.pocket.zip)',
+                icon: 'download',
+                testId: 'pm-export',
+                onSelect: async () => {
+                  try {
+                    const missing = await ctx.projects.exportPackageOf(m.id);
+                    toast(missing.length ? `${missing.length} 個のアセットが見つかりませんでした` : '書き出しました', missing.length ? 'warn' : 'success', 2000);
+                  } catch (err) {
+                    logger.error('書き出しに失敗しました', 'プロジェクト', err);
+                    toast('書き出しに失敗しました', 'error', 3000);
+                  }
+                },
+              },
+              {
+                label: 'バックアップ',
+                icon: 'reset',
+                testId: 'pm-backups',
+                onSelect: () => openBackupsModal(ctx, m.id, m.name),
+              },
               {
                 label: '複製',
                 icon: 'duplicate',

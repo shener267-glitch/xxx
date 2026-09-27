@@ -2,6 +2,8 @@ import { countEntities } from '../core/project';
 import { sanitizeProject } from '../core/serialization';
 import type { ProjectData, ProjectMeta } from '../core/types';
 import { clone } from '../core/util';
+import type { BackupStore } from './BackupStore';
+import { IndexedDbBackupStore, MemoryBackupStore } from './BackupStore';
 
 /**
  * プロジェクトの保存先。
@@ -188,6 +190,7 @@ export class MemoryRepository implements ProjectRepository {
 export interface Storage {
   projects: ProjectRepository;
   assets: AssetStore;
+  backups: BackupStore;
   db: IDBDatabase | null;
 }
 
@@ -195,7 +198,7 @@ export async function createStorage(): Promise<Storage> {
   try {
     if (typeof indexedDB !== 'undefined') {
       const db = await openDatabase();
-      return { projects: new IndexedDbRepository(db), assets: new IndexedDbAssetStore(db), db };
+      return { projects: new IndexedDbRepository(db), assets: new IndexedDbAssetStore(db), backups: new IndexedDbBackupStore(db), db };
     }
   } catch (err) {
     console.warn('[PocketEngine] IndexedDB が使えないため localStorage を使用します', err);
@@ -205,9 +208,9 @@ export async function createStorage(): Promise<Storage> {
     localStorage.setItem(k, '1');
     localStorage.removeItem(k);
     // localStorage は容量が小さく Blob を保存できないため、アセットはメモリのみ
-    return { projects: new LocalStorageRepository(), assets: new MemoryAssetStore(), db: null };
+    return { projects: new LocalStorageRepository(), assets: new MemoryAssetStore(), backups: new MemoryBackupStore(), db: null };
   } catch {
-    return { projects: new MemoryRepository(), assets: new MemoryAssetStore(), db: null };
+    return { projects: new MemoryRepository(), assets: new MemoryAssetStore(), backups: new MemoryBackupStore(), db: null };
   }
 }
 
@@ -308,6 +311,29 @@ export async function estimateStorage(): Promise<{ usage: number; quota: number 
 }
 
 /** 保存データが自動削除されにくくなるよう永続化を要求する */
+/** 使っている容量と上限 (バイト)。取得できないブラウザでは null */
+export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
+  try {
+    if (navigator.storage?.estimate) {
+      const e = await navigator.storage.estimate();
+      return { usage: e.usage ?? 0, quota: e.quota ?? 0 };
+    }
+  } catch {
+    // 非対応
+  }
+  return null;
+}
+
+/** ブラウザがデータを勝手に消さないよう保護されているか */
+export async function isPersisted(): Promise<boolean> {
+  try {
+    if (navigator.storage?.persisted) return await navigator.storage.persisted();
+  } catch {
+    // 非対応
+  }
+  return false;
+}
+
 export async function requestPersistence(): Promise<boolean> {
   try {
     if (navigator.storage?.persist) return await navigator.storage.persist();

@@ -5,6 +5,7 @@ import { button, h, rafThrottle } from '../dom';
 import { icon } from '../icons';
 import { addFromCatalog, catalogGrid } from '../menus';
 import { actionSheet, confirmDialog, promptDialog, toast } from '../overlays';
+import { openImportFromProject } from '../importFromProject';
 
 /**
  * アセットタブ: 読み込んだファイル (3D モデル・画像・音声・フォント) と部品 (Prefab)、基本オブジェクト。
@@ -56,6 +57,7 @@ export class AssetsPanel {
         this.search,
         button({ icon: 'upload', label: '読み込む', class: 'primary small', testId: 'asset-import', onClick: () => this.importFiles() }),
         button({ icon: 'folder', title: '新しいフォルダ', class: 'icon-btn small secondary', testId: 'asset-new-folder', onClick: () => this.newFolder() }),
+        button({ icon: 'more', title: 'アセットの管理', class: 'icon-btn small secondary', testId: 'asset-menu', onClick: () => this.manageMenu() }),
       ),
       this.chips,
       this.body,
@@ -296,6 +298,36 @@ export class AssetsPanel {
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
     });
+  }
+
+  /** アセットの管理 (他のプロジェクトから取り込む・使われていないものを整理) */
+  private manageMenu(): void {
+    const ctx = this.ctx;
+    actionSheet('アセットの管理', [
+      { label: '他のプロジェクトから取り込む…', icon: 'upload', testId: 'asset-from-project', onSelect: () => void openImportFromProject(ctx) },
+      {
+        label: '使われていないアセットを整理…',
+        icon: 'trash',
+        testId: 'asset-cleanup',
+        onSelect: () => {
+          const unused = ctx.assets.unused();
+          if (unused.length === 0) {
+            toast('使われていないアセットはありません', 'info', 1600);
+            return;
+          }
+          const names = unused.slice(0, 8).map((a) => a.name).join('、');
+          void confirmDialog(`使われていないアセットが ${unused.length} 個あります (${names}${unused.length > 8 ? ' など' : ''})。削除しますか？`, {
+            title: 'アセットの整理',
+            okLabel: '削除',
+            danger: true,
+          }).then(async (ok) => {
+            if (!ok) return;
+            const n = await ctx.assets.removeUnused();
+            toast(`${n} 個のアセットを削除しました`, 'success', 1800);
+          });
+        },
+      },
+    ]);
   }
 
   private importFiles(): void {

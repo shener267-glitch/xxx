@@ -9,6 +9,8 @@ import { h } from './dom';
 import { icon } from './icons';
 import type { ActionItem } from './overlays';
 import { groundUnder, makePrefab, openMassPlace } from './assetDialogs';
+import { exportProjectZip, importProjectsFromFile, openBackupsModal } from './dataManager';
+import { openScenesModal } from './sceneManager';
 import { clone } from '../core/util';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
@@ -256,15 +258,19 @@ export function openSceneSwitcher(ctx: AppContext): void {
     hint: s.id === ed.project.startSceneId ? '開始シーン' : `${Object.keys(s.entities).length}個`,
     onSelect: () => ed.setActiveScene(s.id),
   }));
-  items.push('separator', {
-    label: '新しいシーン',
-    icon: 'plus',
-    testId: 'scene-new',
-    onSelect: () => {
-      const s = A.createScene(ed);
-      toast(`${s.name}を作成しました`, 'success', 1400);
+  items.push(
+    'separator',
+    {
+      label: '新しいシーン',
+      icon: 'plus',
+      testId: 'scene-new',
+      onSelect: () => {
+        const s = A.createScene(ed);
+        toast(`${s.name}を作成しました`, 'success', 1400);
+      },
     },
-  });
+    { label: 'シーンの管理…', icon: 'layers', testId: 'scene-manage', onSelect: () => openScenesModal(ctx) },
+  );
   actionSheet('シーンを切り替え', items, { testId: 'scene-switcher' });
 }
 
@@ -340,20 +346,10 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
+    { label: 'プロジェクトを書き出し (.pocket.zip)', icon: 'download', onSelect: () => void exportProjectZip(ctx), testId: 'menu-export-zip', hint: 'アセットも含む' },
     { label: 'プロジェクトを書き出し (.json)', icon: 'download', onSelect: () => p.exportProject(), testId: 'menu-export' },
-    {
-      label: 'プロジェクトを読み込み',
-      icon: 'upload',
-      onSelect: () => {
-        p.importProject().then(
-          (proj) => proj && toast(`「${proj.name}」を読み込みました`, 'success'),
-          (err) => {
-            logger.error('読み込みに失敗しました', 'プロジェクト', err);
-            toast(err instanceof Error ? err.message : '読み込みに失敗しました', 'error', 3500);
-          },
-        );
-      },
-    },
+    { label: 'プロジェクトを読み込み (.zip / .json)', icon: 'upload', onSelect: () => void importProjectsFromFile(ctx), testId: 'menu-import' },
+    { label: 'バックアップ', icon: 'reset', onSelect: () => openBackupsModal(ctx), testId: 'menu-backups' },
     'separator',
     {
       label: logger.unreadErrors > 0 ? `デバッグコンソール (エラー ${logger.unreadErrors})` : 'デバッグコンソール',
