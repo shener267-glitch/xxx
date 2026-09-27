@@ -56,12 +56,12 @@ export function registerGameplayComponents(): void {
         ],
       },
       { key: 'moveSpeed', label: '歩く速さ', type: 'number', min: 0, max: 50, step: 0.5, unit: 'm/秒' },
-      { key: 'runSpeed', label: '走る速さ', type: 'number', min: 0, max: 80, step: 0.5, unit: 'm/秒' },
+      { key: 'runSpeed', label: '走る速さ', type: 'number', min: 0, max: 80, step: 0.5, unit: 'm/秒', advanced: true },
       { key: 'jumpHeight', label: 'ジャンプの高さ', type: 'number', min: 0, max: 20, step: 0.1, unit: 'm' },
       { key: 'lives', label: '残機', type: 'number', min: 1, max: 99, step: 1 },
       { key: 'attack', label: '攻撃できる', type: 'boolean' },
-      { key: 'attackDamage', label: '攻撃力', type: 'number', min: 0, max: 9999, step: 1 },
-      { key: 'attackRange', label: '攻撃の届く距離', type: 'number', min: 0.2, max: 20, step: 0.1, unit: 'm' },
+      { key: 'attackDamage', label: '攻撃力', type: 'number', min: 0, max: 9999, step: 1, advanced: true },
+      { key: 'attackRange', label: '攻撃の届く距離', type: 'number', min: 0.2, max: 20, step: 0.1, unit: 'm', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;
@@ -244,7 +244,7 @@ export function registerGameplayComponents(): void {
     defaults: () => ({ maxHp: 100, invincibleTime: 1, score: 0 }),
     schema: [
       { key: 'maxHp', label: '最大 HP', type: 'number', min: 1, max: 99999, step: 1 },
-      { key: 'invincibleTime', label: 'ダメージ後の無敵時間', type: 'number', min: 0, max: 10, step: 0.1, unit: '秒' },
+      { key: 'invincibleTime', label: 'ダメージ後の無敵時間', type: 'number', min: 0, max: 10, step: 0.1, unit: '秒', advanced: true },
       { key: 'score', label: '倒したときのスコア', type: 'number', min: 0, max: 999999, step: 10 },
     ],
     // HP の管理はランタイムが行う (ダメージ・回復・倒れたときの処理)
@@ -356,8 +356,8 @@ export function registerGameplayComponents(): void {
     defaults: () => ({ message: 'こんにちは！\n\nいい天気ですね。', talkRange: 2.5, facePlayer: true }),
     schema: [
       { key: 'message', label: 'セリフ', type: 'text', hint: '空行でページを区切る' },
-      { key: 'talkRange', label: '話せる距離', type: 'number', min: 0.5, max: 50, step: 0.5, unit: 'm' },
-      { key: 'facePlayer', label: 'プレイヤーの方を向く', type: 'boolean' },
+      { key: 'talkRange', label: '話せる距離', type: 'number', min: 0.5, max: 50, step: 0.5, unit: 'm', advanced: true },
+      { key: 'facePlayer', label: 'プレイヤーの方を向く', type: 'boolean', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;
@@ -407,7 +407,7 @@ export function registerGameplayComponents(): void {
       },
       { key: 'value', label: '量', type: 'number', min: 0, max: 999999, step: 1 },
       { key: 'itemName', label: '持ち物の名前', type: 'string', hint: '種類が「持ち物」のとき' },
-      { key: 'spin', label: 'くるくる回る', type: 'boolean' },
+      { key: 'spin', label: 'くるくる回る', type: 'boolean', advanced: true },
       { key: 'sound', label: '拾ったときの音', type: 'sound', hint: '未設定なら種類に合った音' },
     ],
     create(ctx, props) {
@@ -470,7 +470,7 @@ export function registerGameplayComponents(): void {
     defaults: () => ({ amount: 20, knockback: true }),
     schema: [
       { key: 'amount', label: 'ダメージ量', type: 'number', min: 0, max: 99999, step: 1 },
-      { key: 'knockback', label: '弾き飛ばす', type: 'boolean' },
+      { key: 'knockback', label: '弾き飛ばす', type: 'boolean', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;
@@ -505,7 +505,7 @@ export function registerGameplayComponents(): void {
     category: 'gameplay',
     defaults: () => ({ persist: true, message: 'セーブしました' }),
     schema: [
-      { key: 'persist', label: '端末に保存', type: 'boolean' },
+      { key: 'persist', label: '端末に保存', type: 'boolean', advanced: true },
       { key: 'message', label: 'メッセージ', type: 'string' },
     ],
     create(ctx, props) {
@@ -596,8 +596,8 @@ export function registerGameplayComponents(): void {
     schema: [
       { key: 'sound', label: '音', type: 'sound' },
       { key: 'volume', label: '音量', type: 'number', min: 0, max: 1, step: 0.05 },
-      { key: 'delay', label: '鳴らすまでの時間', type: 'number', min: 0, max: 3600, step: 0.5, unit: '秒' },
-      { key: 'repeat', label: 'くり返す間隔 (0 = 1回だけ)', type: 'number', min: 0, max: 3600, step: 0.5, unit: '秒' },
+      { key: 'delay', label: '鳴らすまでの時間', type: 'number', min: 0, max: 3600, step: 0.5, unit: '秒', advanced: true },
+      { key: 'repeat', label: 'くり返す間隔 (0 = 1回だけ)', type: 'number', min: 0, max: 3600, step: 0.5, unit: '秒', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;

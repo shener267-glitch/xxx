@@ -330,7 +330,22 @@ export interface GameSettings {
   showHud: boolean;
   clearMessage: string;
   gameOverMessage: string;
+  /** 作者 (書き出したゲームに表示) */
+  author: string;
+  /** バージョン (書き出したゲームに表示) */
+  version: string;
+  /** ゲームの説明 (書き出したゲームのページ説明) */
+  description: string;
+  /** 画面の向き (書き出したゲーム: 合わないときに「回転してください」と表示) */
+  orientation: GameOrientation;
+  /** 書き出したゲームの画質の初期値 (auto = 端末に合わせる) */
+  quality: GameQuality;
+  /** 書き出したゲームをタイトル画面から始める */
+  startFromTitle: boolean;
 }
+
+export type GameOrientation = 'any' | 'portrait' | 'landscape';
+export type GameQuality = 'auto' | 'low' | 'medium' | 'high';
 
 /** タイムラインの 1 つの動作 (time 秒の時点で action を実行する) */
 export interface TimelineItem {

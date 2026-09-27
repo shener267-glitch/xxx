@@ -9,6 +9,7 @@ import { createProject } from './core/project';
 import { loadSettings } from './core/settings';
 import type { ProjectData } from './core/types';
 import { EngineRenderer } from './engine/EngineRenderer';
+import { preventPageZoom } from './runtime/pageZoom';
 import { createStorage, getLastProjectId, requestPersistence } from './storage/ProjectRepository';
 import { App } from './ui/App';
 import { h } from './ui/dom';
@@ -67,6 +68,7 @@ async function boot(): Promise<void> {
   const root = document.getElementById('app')!;
   installErrorHandlers();
   setViewportHeight();
+  preventPageZoom();
 
   if (!EngineRenderer.isSupported()) {
     showFatal(root, '3D 表示に対応していません', 'このブラウザでは WebGL が使えないため Pocket Engine を起動できません。最新の Chrome / Safari / Edge / Firefox をお試しください。');

@@ -269,7 +269,8 @@ let toastRoot: HTMLElement | null = null;
 
 export type ToastKind = 'info' | 'success' | 'warn' | 'error';
 
-export function toast(message: string, kind: ToastKind = 'info', ms = 2200): void {
+/** お知らせを出す。close() ですぐに消せる (長い処理の「〜しています…」など) */
+export function toast(message: string, kind: ToastKind = 'info', ms = 2200): { close(): void } {
   if (!toastRoot) {
     toastRoot = h('div', { class: 'toast-root', attrs: { 'aria-live': 'polite' } });
     document.body.appendChild(toastRoot);
@@ -280,8 +281,13 @@ export function toast(message: string, kind: ToastKind = 'info', ms = 2200): voi
   // 同時に大量に出ないよう古いものを消す
   while (toastRoot.children.length > 3) toastRoot.firstElementChild?.remove();
   requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => {
+  let done = false;
+  const close = () => {
+    if (done) return;
+    done = true;
     el.classList.remove('show');
     setTimeout(() => el.remove(), 250);
-  }, ms);
+  };
+  setTimeout(close, ms);
+  return { close };
 }

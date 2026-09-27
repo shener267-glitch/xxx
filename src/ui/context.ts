@@ -25,4 +25,6 @@ export interface AppContext {
   showHelp(): void;
   /** デバッグコンソール */
   console: DebugConsole;
+  /** イベントタブを開き、そのイベント (またはタイムライン) を見せる */
+  showRule(ruleId: string | null, timelineId?: string): void;
 }

@@ -25,6 +25,9 @@ export class BottomSheet {
   private title: HTMLElement;
   private tabButtons = new Map<TabId, HTMLButtonElement>();
   private panels = new Map<TabId, HTMLElement>();
+  /** タブごとの見出し (無ければタブ名) */
+  private titles = new Map<TabId, HTMLElement>();
+  private titleTab: TabId | null = null;
   private dragHeight: number | null = null;
   private side = false;
   private listeners = new Set<() => void>();
@@ -101,7 +104,14 @@ export class BottomSheet {
     applyMode();
   }
 
-  addPanel(id: TabId, el: HTMLElement): void {
+  addPanel(id: TabId, el: HTMLElement, title?: HTMLElement): void {
+    if (title) {
+      this.titles.set(id, title);
+      if (id === this.tab) {
+        this.titleTab = id;
+        this.title.replaceChildren(title);
+      }
+    }
     el.dataset.tab = id;
     el.hidden = id !== this.tab;
     this.panels.set(id, el);
@@ -131,20 +141,46 @@ export class BottomSheet {
     this.apply();
   }
 
-  /** シートが画面下を覆っている高さ (px)。横画面モードでは 0 */
-  get coveredHeight(): number {
-    if (this.side || this.state === 'closed') return 0;
-    return this.el.getBoundingClientRect().height;
+  /** ハンドルをドラッグ中か */
+  get dragging(): boolean {
+    return this.dragHeight !== null;
+  }
+
+  /**
+   * 3D ビューのうち、シートで覆われる幅・高さ (px。開き終わったときの値)。
+   * 全画面のときは 3D ビューを見ていないので、半分の高さとして扱う (開閉で視点が大きく動かないように)
+   */
+  cover(): { right: number; bottom: number } {
+    if (this.state === 'closed' && this.dragHeight === null) return { right: 0, bottom: 0 };
+    if (this.side) {
+      const style = getComputedStyle(this.el);
+      const width = parseFloat(style.width) || this.el.getBoundingClientRect().width;
+      return { right: width + 16, bottom: 0 };
+    }
+    const { half } = this.heights();
+    return { right: 0, bottom: Math.max(0, Math.min(this.dragHeight ?? half, half) - this.underlap()) };
+  }
+
+  /**
+   * 縦画面ではシートを開くとツールバー (選択・移動… と「追加」) の上に重ねる。
+   * その分シートと 3D ビューを広く使える (移動・回転・拡大は選択中の操作バーから切り替えられる)
+   */
+  private underlap(): number {
+    if (this.side) return 0;
+    return parseFloat(getComputedStyle(this.host).getPropertyValue('--toolbar-h')) || 0;
   }
 
   private heights(): { half: number; full: number } {
-    const H = this.container.clientHeight;
-    return { half: Math.round(Math.max(260, H * 0.48)), full: Math.max(300, H - 8) };
+    const H = this.container.clientHeight + this.underlap();
+    return { half: Math.round(Math.max(280, H * 0.5)), full: Math.max(300, H - 8) };
   }
 
   private apply(): void {
-    const label = TABS.find((t) => t.id === this.tab)?.label ?? '';
-    this.title.textContent = label;
+    if (this.titleTab !== this.tab) {
+      this.titleTab = this.tab;
+      const label = TABS.find((t) => t.id === this.tab)?.label ?? '';
+      this.title.replaceChildren(this.titles.get(this.tab) ?? document.createTextNode(label));
+    }
     this.el.dataset.state = this.state;
     this.host.dataset.sheet = this.state;
     for (const [id, b] of this.tabButtons) {
@@ -159,28 +195,44 @@ export class BottomSheet {
       const target = this.dragHeight ?? (this.state === 'closed' ? 0 : this.state === 'half' ? half : full);
       this.el.style.height = `${target}px`;
     }
-    this.host.style.setProperty('--sheet-cover', `${this.side ? 0 : this.state === 'closed' ? 0 : parseFloat(this.el.style.height) || 0}px`);
+    const covered = this.side || this.state === 'closed' ? 0 : Math.max(0, (parseFloat(this.el.style.height) || 0) - this.underlap());
+    this.host.style.setProperty('--sheet-cover', `${covered}px`);
     for (const fn of this.listeners) fn();
   }
 
   /** ハンドルのドラッグで高さを変える。離したときに近い段階へ吸着 */
   private bindDrag(): void {
-    let start: { y: number; h: number; t: number; id: number } | null = null;
+    // fromButton: 見出しのボタン (シーン名など) の上で押した。動かさずに離せばボタンのタップ、動かせばシートのドラッグ
+    let start: { y: number; h: number; t: number; id: number; fromButton: boolean; dragging: boolean } | null = null;
     let lastY = 0;
     let lastT = 0;
     let velocity = 0;
+    const beginDrag = (id: number) => {
+      try {
+        this.handle.setPointerCapture(id);
+      } catch {
+        // 既に離されている
+      }
+      this.el.classList.add('dragging');
+    };
     this.handle.addEventListener('pointerdown', (e) => {
       if (this.side) return;
-      if ((e.target as HTMLElement).closest('button')) return;
-      start = { y: e.clientY, h: this.el.getBoundingClientRect().height, t: performance.now(), id: e.pointerId };
+      const target = e.target as HTMLElement;
+      const fromButton = !!target.closest('.sheet-title button');
+      if (target.closest('button') && !fromButton) return;
+      start = { y: e.clientY, h: this.el.getBoundingClientRect().height, t: performance.now(), id: e.pointerId, fromButton, dragging: !fromButton };
       lastY = e.clientY;
       lastT = start.t;
       velocity = 0;
-      this.handle.setPointerCapture(e.pointerId);
-      this.el.classList.add('dragging');
+      if (!fromButton) beginDrag(e.pointerId);
     });
     this.handle.addEventListener('pointermove', (e) => {
       if (!start || e.pointerId !== start.id) return;
+      if (!start.dragging) {
+        if (Math.abs(e.clientY - start.y) < 6) return;
+        start.dragging = true;
+        beginDrag(e.pointerId);
+      }
       const now = performance.now();
       velocity = (e.clientY - lastY) / Math.max(1, now - lastT);
       lastY = e.clientY;
@@ -193,7 +245,10 @@ export class BottomSheet {
     const end = (e: PointerEvent) => {
       if (!start || e.pointerId !== start.id) return;
       const moved = Math.abs(e.clientY - start.y);
+      const wasDragging = start.dragging;
       start = null;
+      // 見出しのボタンをタップしただけ: ボタンの動作に任せる
+      if (!wasDragging) return;
       this.el.classList.remove('dragging');
       if (moved < 6) {
         // タップ: 半分 ⇔ 全画面を切り替え

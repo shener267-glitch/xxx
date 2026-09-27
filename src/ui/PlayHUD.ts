@@ -1,4 +1,5 @@
 import type { PlayCameraMode } from '../core/settings';
+import { fullscreenSupported, isFullscreen, setFullscreen } from '../runtime/fullscreen';
 import type { RuntimeStats } from '../runtime/GameRuntime';
 import type { AppContext } from './context';
 import { button, h, setIcon } from './dom';
@@ -76,7 +77,7 @@ export class PlayHUD {
         this.stats.hidden = !ctx.editor.settings.showFps;
       },
       onStop: () => {
-        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        if (isFullscreen()) void setFullscreen(false);
       },
       onStats: (s) => this.showStats(s),
       onMessage: (m, level) => toast(m, level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info', 3500),
@@ -114,13 +115,14 @@ export class PlayHUD {
   }
 
   private toggleFullscreen(): void {
-    const root = document.documentElement;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => undefined);
-    } else if (root.requestFullscreen) {
-      root.requestFullscreen({ navigationUI: 'hide' }).catch(() => toast('このブラウザでは全画面にできません', 'warn'));
+    if (isFullscreen()) {
+      void setFullscreen(false);
+    } else if (fullscreenSupported()) {
+      void setFullscreen(true).then((on) => {
+        if (!on) toast('このブラウザでは全画面にできません', 'warn');
+      });
     } else {
-      // iOS Safari は requestFullscreen 非対応 (ホーム画面に追加すると全画面で動作)
+      // iPhone の Safari は全画面に対応していない (ホーム画面に追加すると全画面で動作)
       toast('ホーム画面に追加すると全画面で遊べます', 'info', 3000);
     }
   }

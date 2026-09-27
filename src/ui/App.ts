@@ -31,6 +31,8 @@ import { TopBar } from './TopBar';
 import { UIPreview } from './UIPreview';
 import { ViewportOverlay } from './ViewportOverlay';
 
+const TOUCH_PICK_RADIUS = 16;
+
 /**
  * エディタ全体の組み立て。
  *
@@ -49,6 +51,7 @@ export class App implements AppContext {
   readonly console: DebugConsole;
   readonly root: HTMLElement;
   readonly uiPreview: UIPreview;
+  private eventsPanel!: EventsPanel;
 
   constructor(mount: HTMLElement, project: ProjectData, storage: Storage, settings: EditorSettings) {
     this.editor = new Editor(project, settings);
@@ -64,15 +67,33 @@ export class App implements AppContext {
     mount.appendChild(this.root);
 
     this.engine = new EngineRenderer(viewportEl, { quality: settings.quality, shadows: settings.shadows });
+    // 指で押すときは、物の真下でなくても近ければ選ぶ (小さな物・細い物を選びやすくする)
+    const tolerance = (touch: boolean) => (touch ? TOUCH_PICK_RADIUS : 0);
+    let lastTap = { x: 0, y: 0, t: 0 };
     this.viewport = new EditorViewport(ed, this.engine, viewportEl, {
-      onTap: (x, y, additive) => {
+      onTap: (x, y, additive, touch) => {
         // 画面の UI (文字・ボタンなど) のプレビューを優先して選ぶ
-        const id = this.uiPreview.hitTest(x, y) ?? this.viewport.pick(x, y);
+        const ui = this.uiPreview.hitTest(x, y);
+        if (ui) {
+          ed.select(ui, additive);
+          return;
+        }
+        const hits = this.viewport.pickAll(x, y, tolerance(touch));
+        let id = hits[0] ?? null;
+        // 同じ場所をもう一度タップしたら、重なっている奥の物を順に選ぶ
+        const now = performance.now();
+        const again = Math.hypot(x - lastTap.x, y - lastTap.y) < 20 && now - lastTap.t < 5000;
+        const active = ed.selection.active;
+        if (!additive && again && hits.length > 1 && active && ed.selection.size === 1 && hits.includes(active)) {
+          id = hits[(hits.indexOf(active) + 1) % hits.length];
+          toast(`重なっている物: ${ed.scene.get(id)?.name ?? ''} (${hits.indexOf(id) + 1}/${hits.length})`, 'info', 1300);
+        }
+        lastTap = { x, y, t: now };
         if (id) ed.select(id, additive);
         else if (!additive && !ed.multiSelect) ed.selection.clear();
       },
-      onDoubleTap: (x, y) => {
-        const id = this.viewport.pick(x, y);
+      onDoubleTap: (x, y, touch) => {
+        const id = this.viewport.pick(x, y, tolerance(touch));
         if (id) {
           ed.select(id);
           ed.requestFocus([id]);
@@ -80,9 +101,9 @@ export class App implements AppContext {
           ed.requestFocus([]);
         }
       },
-      onLongPress: (x, y) => {
+      onLongPress: (x, y, touch) => {
         if (navigator.vibrate) navigator.vibrate(12);
-        const id = this.viewport.pick(x, y);
+        const id = this.viewport.pick(x, y, tolerance(touch));
         if (id) this.openEntityMenu(id);
         else this.showAddSheet({ x, y });
       },
@@ -102,14 +123,21 @@ export class App implements AppContext {
     this.uiPreview = new UIPreview(this);
     main.append(this.uiPreview.el, overlay.el, brushBar.el, hud.el, this.sheet.el);
 
-    this.sheet.addPanel('scene', new ScenePanel(this).el);
+    const scenePanel = new ScenePanel(this);
+    this.sheet.addPanel('scene', scenePanel.el, scenePanel.title);
     this.sheet.addPanel('inspector', new InspectorPanel(this).el);
-    this.sheet.addPanel('events', new EventsPanel(this).el);
+    this.eventsPanel = new EventsPanel(this);
+    this.sheet.addPanel('events', this.eventsPanel.el);
     const assetsPanel = new AssetsPanel(this);
     this.sheet.addPanel('assets', assetsPanel.el);
     this.sheet.addPanel('settings', new SettingsPanel(this).el);
 
     this.root.append(topbar.el, main, toolbar.el, this.sheet.tabbar, this.console.el);
+
+    // シートで覆われていない範囲に 3D ビューの中心を合わせる (選んだ物がシートに隠れないように)
+    const syncInsets = () => this.viewport.setInsets(this.sheet.cover(), !this.sheet.dragging);
+    this.sheet.onChange(syncInsets);
+    syncInsets();
 
     // エディタ設定は端末に保存
     ed.events.on('settings-changed', () => saveSettings(ed.settings));
@@ -175,6 +203,11 @@ export class App implements AppContext {
 
   openProjects(): void {
     openProjectsModal(this);
+  }
+
+  showRule(ruleId: string | null, timelineId?: string): void {
+    this.openTab('events', 'half');
+    this.eventsPanel.reveal(ruleId, timelineId);
   }
 
   showHelp(): void {

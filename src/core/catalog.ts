@@ -59,6 +59,8 @@ export type CreateKind =
   | 'game-spike'
   | 'game-savepoint'
   | 'game-goal'
+  | 'game-door'
+  | 'game-switch'
   | 'fx-fire'
   | 'fx-smoke'
   | 'fx-sparks'
@@ -109,6 +111,8 @@ export const CATALOG: CatalogItem[] = [
   { kind: 'game-spike', label: 'トゲ (ダメージ床)', english: 'Hazard', defaultName: 'トゲ', icon: 'cone', category: 'game', description: '触れるとダメージを受ける' },
   { kind: 'game-savepoint', label: 'セーブポイント', english: 'Save Point', defaultName: 'セーブポイント', icon: 'flag', category: 'game', description: '触れると復活地点を記録' },
   { kind: 'game-goal', label: 'ゴール', english: 'Goal', defaultName: 'ゴール', icon: 'trophy', category: 'game', description: '触れるとゲームクリア' },
+  { kind: 'game-door', label: 'ドア', english: 'Door', defaultName: 'ドア', icon: 'square', category: 'game', description: '通れない扉。イベントの「ひな形」でスイッチや鍵で開くようにできる' },
+  { kind: 'game-switch', label: 'スイッチ', english: 'Switch', defaultName: 'スイッチ', icon: 'target', category: 'game', description: '踏むボタン。イベントの「ひな形」でドアを開けたり仕掛けを動かせる' },
   { kind: 'fx-fire', label: '炎', english: 'Fire', defaultName: '炎', icon: 'zap', category: 'effect', description: 'ゆらめく炎 (たき火・たいまつ)' },
   { kind: 'fx-smoke', label: '煙', english: 'Smoke', defaultName: '煙', icon: 'cloud', category: 'effect', description: 'もくもく上がる煙' },
   { kind: 'fx-sparks', label: '火花', english: 'Sparks', defaultName: '火花', icon: 'sparkles', category: 'effect', description: '飛び散る火花' },
@@ -193,6 +197,33 @@ export function entityIcon(e: EntityData): string {
     default:
       return e.children.length > 0 ? 'group' : 'empty';
   }
+}
+
+export type RoleTone = 'player' | 'enemy' | 'item' | 'npc' | 'goal' | 'hazard' | 'effect' | 'motion';
+
+/**
+ * 一覧で目印にする「役割」(プレイヤー・敵・コイン など)。
+ * ゲームの仕組みを持たない物は null
+ */
+export function entityRole(e: EntityData, isPlayer = false): { label: string; tone: RoleTone } | null {
+  const has = (type: string) => e.components.find((c) => c.type === type && c.enabled);
+  if (isPlayer || has('player')) return { label: 'プレイヤー', tone: 'player' };
+  if (has('enemy')) return { label: '敵', tone: 'enemy' };
+  if (has('npc')) return { label: 'NPC', tone: 'npc' };
+  const item = has('item');
+  if (item) {
+    const kind = item.props.kind;
+    const label = kind === 'coin' ? 'コイン' : kind === 'heal' ? '回復' : kind === 'score' ? 'スコア' : String(item.props.itemName || 'アイテム');
+    return { label: label.length > 6 ? `${label.slice(0, 6)}…` : label, tone: 'item' };
+  }
+  if (has('goal')) return { label: 'ゴール', tone: 'goal' };
+  if (has('damage')) return { label: 'ダメージ', tone: 'hazard' };
+  if (has('savepoint')) return { label: 'セーブ', tone: 'goal' };
+  if (has('particles')) return { label: 'エフェクト', tone: 'effect' };
+  if (has('animation') || has('rotator') || has('oscillator')) return { label: '動く', tone: 'motion' };
+  if (has('rigidbody')) return { label: '物理', tone: 'motion' };
+  if (has('sound')) return { label: '音', tone: 'effect' };
+  return null;
 }
 
 /** エンティティの種類の表示名 */
@@ -322,6 +353,12 @@ export function defaultGameSettings(title = '新しいゲーム'): GameSettings 
     showHud: true,
     clearMessage: 'ゲームクリア！',
     gameOverMessage: 'ゲームオーバー',
+    author: '',
+    version: '1.0.0',
+    description: '',
+    orientation: 'any',
+    quality: 'auto',
+    startFromTitle: true,
   };
 }
 
@@ -604,6 +641,27 @@ export function createEntity(kind: CreateKind, name?: string): EntityData {
       base.transform.position = [0, 0.05, 0];
       base.transform.scale = [1.4, 0.1, 1.4];
       base.components.push(makeComponent('savepoint'));
+      return base;
+    }
+    case 'game-door': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cube', '#8b5a2b');
+      Object.assign(base.mesh.material, { preset: 'wood', pattern: 'wood', roughness: 0.75 });
+      base.transform.position = [0, 1.3, 0];
+      base.transform.scale = [2, 2.6, 0.3];
+      base.tags.push('door');
+      return base;
+    }
+    case 'game-switch': {
+      base.kind = 'mesh';
+      base.mesh = defaultMesh('cylinder', '#ff4d4f');
+      base.mesh.material.emissive = '#ff2020';
+      base.mesh.material.emissiveIntensity = 0.35;
+      base.transform.position = [0, 0.08, 0];
+      base.transform.scale = [1, 0.16, 1];
+      // 上に乗って (重なって) 押せるよう、すり抜ける当たり判定にする
+      base.components.push(makeComponent('collider', { trigger: true }));
+      base.tags.push('switch');
       return base;
     }
     case 'game-goal': {

@@ -2,7 +2,7 @@ import { Matrix4 } from 'three';
 import type { PropSchema } from '../../components/registry';
 import { getComponentDef, listComponentDefs } from '../../components/registry';
 import * as A from '../../core/actions';
-import { entityIcon, entityTypeLabel, LIGHT_LABELS, MATERIAL_PRESETS, PATTERN_LABELS, SHAPE_LABELS } from '../../core/catalog';
+import { entityIcon, entityRole, entityTypeLabel, LIGHT_LABELS, MATERIAL_PRESETS, PATTERN_LABELS, SHAPE_LABELS } from '../../core/catalog';
 import type { EntityData, EnvironmentData, MaterialPattern, MaterialPreset, PrimitiveShape, SkyType, Vec3, WeatherType } from '../../core/types';
 import { deepEqual, getPath } from '../../core/util';
 import type { AppContext } from '../context';
@@ -31,6 +31,8 @@ export class InspectorPanel {
   private uniformScale = true;
   /** セクションの開閉状態 (再構築しても保つ) */
   private collapsed = new Map<string, boolean>();
+  /** 「詳しい設定」を開いているコンポーネント (オブジェクト ID:コンポーネント ID) */
+  private openAdvanced = new Set<string>();
   private scheduleUpdate = rafThrottle(() => this.update());
   private kit: InspectorKit;
 
@@ -122,6 +124,7 @@ export class InspectorPanel {
   private build(): void {
     const scroll = this.el.scrollTop;
     clear(this.body);
+    this.el.onscroll = null;
     this.refreshers = [];
     const list = this.entities;
     if (list.length === 0) this.buildScene();
@@ -177,8 +180,10 @@ export class InspectorPanel {
       }
     });
 
+    const jump = h('nav', { class: 'insp-jump', attrs: { 'aria-label': '項目へ移動', 'data-testid': 'insp-jump' } });
     this.body.append(
       hint,
+      h('div', { class: 'insp-sticky' }, jump),
       this.section('シーン設定', 'layers', [
         fieldRow('シーン名', nameField.el),
         fieldRow('プレイヤー', playerSelect, { hint: '三人称カメラで操作する対象' }),
@@ -189,6 +194,7 @@ export class InspectorPanel {
       this.physicsSection(),
       this.section('統計', 'info', [stats]),
     );
+    this.fillJumpBar(jump);
   }
 
   /** 空・霧・映り込み・天候 */
@@ -406,11 +412,16 @@ export class InspectorPanel {
   private buildEntities(list: EntityData[]): void {
     const ed = this.ctx.editor;
     const single = list.length === 1 ? list[0] : null;
-    this.body.appendChild(this.header(list));
+    const jump = h('nav', { class: 'insp-jump', attrs: { 'aria-label': '項目へ移動', 'data-testid': 'insp-jump' } });
+    this.body.appendChild(h('div', { class: 'insp-sticky' }, this.header(list), jump));
     const kinds = new Set(list.map((e) => e.kind));
     const kind = kinds.size === 1 ? list[0].kind : null;
     // 画面の UI は 3D の位置を持たない
     if (kind !== 'ui') this.body.appendChild(this.transformSection());
+    // プレイヤー・敵・アイテムなどゲームの仕組みを持つ物は、見た目より先に「動作」を出す
+    const role = single ? entityRole(single, ed.sceneData.playerId === single.id) : null;
+    const gameFirst = !!single && !!role && ['player', 'enemy', 'npc', 'item', 'goal', 'hazard'].includes(role.tone);
+    if (gameFirst && single) this.body.appendChild(this.componentsSection(single));
 
     if (kind === 'ui' && single) {
       this.body.appendChild(uiElementSection(this.kit, single));
@@ -427,7 +438,7 @@ export class InspectorPanel {
       this.body.appendChild(this.cameraSection(single));
     }
     if (single) {
-      this.body.appendChild(this.componentsSection(single));
+      if (!gameFirst) this.body.appendChild(this.componentsSection(single));
       this.body.appendChild(this.hierarchySection(single));
     }
 
@@ -439,6 +450,48 @@ export class InspectorPanel {
         button({ icon: 'trash', label: '削除', class: 'danger-outline', onClick: () => A.deleteEntities(ed, this.ids), testId: 'insp-delete' }),
       ),
     );
+    this.fillJumpBar(jump);
+  }
+
+  /** 見出しの下の「項目へ移動」ボタン (長い Inspector をスクロールせずに目的の項目へ) */
+  private fillJumpBar(bar: HTMLElement): void {
+    const sections = [...this.body.querySelectorAll<HTMLElement>('section.section')].filter((sec) => !sec.parentElement?.closest('section.section'));
+    if (sections.length < 3) {
+      bar.hidden = true;
+      return;
+    }
+    const chips = sections.map((sec) => {
+      const title = sec.dataset.title ?? '';
+      return h('button', {
+        class: 'jump-chip',
+        text: shortSectionTitle(title),
+        attrs: { type: 'button', 'data-testid': `jump-${sec.dataset.testid ?? title}` },
+        on: {
+          click: () => {
+            if (sec.classList.contains('collapsed')) (sec.querySelector('.section-toggle') as HTMLButtonElement | null)?.click();
+            this.el.scrollTo({ top: Math.max(0, this.el.scrollTop + offsetInPanel(sec)), behavior: 'smooth' });
+          },
+        },
+      });
+    });
+    bar.replaceChildren(...chips);
+    // 見出し (固定表示) の下端から測った、項目の上端の位置
+    const offsetInPanel = (sec: HTMLElement) => {
+      const sticky = (this.body.querySelector('.insp-sticky') as HTMLElement | null)?.getBoundingClientRect().bottom ?? this.el.getBoundingClientRect().top;
+      return sec.getBoundingClientRect().top - sticky - 6;
+    };
+    // スクロール位置に合わせて、今見ている項目のボタンを強調する
+    const highlight = () => {
+      if (this.el.offsetParent === null) return;
+      let current = 0;
+      sections.forEach((sec, i) => {
+        if (offsetInPanel(sec) <= 12) current = i;
+      });
+      chips.forEach((c, i) => c.classList.toggle('active', i === current));
+    };
+    this.el.onscroll = rafThrottle(highlight);
+    chips[0]?.classList.add('active');
+    requestAnimationFrame(highlight);
   }
 
   private header(list: EntityData[]): HTMLElement {
@@ -536,7 +589,17 @@ export class InspectorPanel {
         toast(this.uniformScale ? '縦横比を固定して拡大縮小します' : '各軸を個別に変更します', 'info', 1400);
       },
     });
-    return this.section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
+    // 大きさを変えて地面に埋まった / 浮いた物を、下の面にそろえる
+    const drop = button({
+      icon: 'arrowDown',
+      title: '地面に置く (下にそろえる)',
+      class: 'icon-btn small ghost',
+      testId: 'insp-drop',
+      onClick: () => {
+        if (!this.ctx.viewport.dropToGround(this.ids)) toast('すでに地面の上にあります', 'info', 1400);
+      },
+    });
+    return this.section('トランスフォーム', 'move', [vecRow('位置', 'position', 0.1, drop), vecRow('回転', 'rotation', 5), vecRow('サイズ', 'scale', 0.1, link)], {
       testId: 'sec-transform',
     });
   }
@@ -820,7 +883,33 @@ export class InspectorPanel {
       const remove = button({ icon: 'trash', title: '削除', class: 'icon-btn small ghost', onClick: () => A.removeComponent(ed, e.id, comp.id) });
       const props: HTMLElement[] = [];
       if (def) {
-        for (const schema of def.schema) props.push(this.componentProp(e.id, comp.id, schema));
+        const basic = def.schema.filter((sc) => !sc.advanced);
+        const advanced = def.schema.filter((sc) => sc.advanced);
+        for (const schema of basic) props.push(this.componentProp(e.id, comp.id, schema));
+        if (advanced.length > 0) {
+          const key = `${e.id}:${comp.id}`;
+          const box = h('div', { class: 'advanced-props' }, advanced.map((schema) => this.componentProp(e.id, comp.id, schema)));
+          const toggle = h('button', {
+            class: 'advanced-toggle',
+            attrs: { type: 'button', 'data-testid': `adv-${comp.type}` },
+            on: {
+              click: () => {
+                const open = !this.openAdvanced.has(key);
+                if (open) this.openAdvanced.add(key);
+                else this.openAdvanced.delete(key);
+                sync();
+              },
+            },
+          });
+          const sync = () => {
+            const open = this.openAdvanced.has(key);
+            box.hidden = !open;
+            toggle.innerHTML = `${icon(open ? 'chevronUp' : 'chevronDown', 16)}<span>${open ? '詳しい設定をしまう' : `詳しい設定 (${advanced.length})`}</span>`;
+            toggle.setAttribute('aria-expanded', String(open));
+          };
+          sync();
+          props.push(toggle, box);
+        }
       } else {
         props.push(h('p', { class: 'field-note warn', text: `不明なコンポーネント「${comp.type}」です (新しいバージョンで作られた可能性があります)` }));
       }
@@ -861,7 +950,13 @@ export class InspectorPanel {
         );
       },
     });
-    const note = h('p', { class: 'field-note', text: '動作は Play 中に実行されます。「条件 → 動作」のイベントは今後のアップデートで追加されます。' });
+    const note = h(
+      'p',
+      { class: 'field-note' },
+      '動作は Play 中に自動で実行されます。「触れたらドアが開く」のような仕組みは ',
+      h('button', { class: 'link-btn', text: 'イベント', attrs: { type: 'button', 'data-testid': 'insp-open-events' }, on: { click: () => this.ctx.openTab('events') } }),
+      ' タブで作れます。',
+    );
     return this.section('動作 (コンポーネント)', 'sparkles', [...cards, add, note], { testId: 'sec-components' });
   }
 
@@ -960,6 +1055,24 @@ export class InspectorPanel {
     }
     return this.section('階層・ゲーム設定', 'group', rows, { collapsed: false });
   }
+}
+
+const SHORT_TITLES: Record<string, string> = {
+  トランスフォーム: '位置',
+  メッシュ: '形',
+  マテリアル: '見た目',
+  'テクスチャの配置 (UV)': '模様',
+  '動作 (コンポーネント)': '動作',
+  '階層・ゲーム設定': '階層',
+  シーン設定: 'シーン',
+  ゲーム設定: 'ゲーム',
+  '空・明るさ': '空',
+  '時刻・昼と夜': '時刻',
+  画面の効果: '効果',
+};
+
+function shortSectionTitle(title: string): string {
+  return SHORT_TITLES[title] ?? (title.length > 6 ? `${title.slice(0, 6)}…` : title);
 }
 
 /** 時刻 (0〜24) を「10:30」の形にする */

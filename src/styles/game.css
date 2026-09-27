@@ -269,7 +269,8 @@
 .g-toast {
   position: absolute;
   left: 50%;
-  top: calc(var(--g-top) + 58px + var(--safe-top, 0px));
+  /* 画面上部に置いた UI の文字 (目的など) に重ならないよう、少し下に出す */
+  top: max(calc(var(--g-top) + 120px + var(--safe-top, 0px)), 28%);
   transform: translate(-50%, -8px);
   max-width: calc(100% - 40px);
   padding: 8px 16px;
@@ -396,6 +397,49 @@
   font-size: 15px;
   color: rgba(255, 255, 255, 0.8);
   animation: g-pulse 1.8s ease-in-out infinite;
+}
+
+.g-credit {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 設定画面の選択肢 (書き出したゲームの画質など) */
+.g-choice {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.g-choice-options {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.g-choice-options button {
+  flex: 1;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.g-choice-options button.on {
+  background: #3d8bff;
+  color: #fff;
+  font-weight: 700;
 }
 
 .g-screen-title {

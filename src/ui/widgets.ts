@@ -703,7 +703,7 @@ export function section(
     }),
     opts.actions ? h('div', { class: 'section-actions' }, opts.actions) : null,
   );
-  const el = h('section', { class: `section ${opts.collapsed ? 'collapsed' : ''}`.trim(), attrs: { 'data-testid': opts.testId } }, header, content);
+  const el = h('section', { class: `section ${opts.collapsed ? 'collapsed' : ''}`.trim(), attrs: { 'data-testid': opts.testId, 'data-title': title } }, header, content);
   return el;
 }
 

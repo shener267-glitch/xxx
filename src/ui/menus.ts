@@ -1,7 +1,7 @@
 import { Matrix4 } from 'three';
 import * as A from '../core/actions';
 import type { CatalogItem, CreateKind } from '../core/catalog';
-import { CATALOG, entityIcon } from '../core/catalog';
+import { CATALOG, createEntity, entityIcon } from '../core/catalog';
 import { logger } from '../core/logger';
 import type { Vec3 } from '../core/types';
 import type { AppContext } from './context';
@@ -11,6 +11,8 @@ import type { ActionItem } from './overlays';
 import { groundUnder, makePrefab, openMassPlace } from './assetDialogs';
 import { exportProjectZip, importProjectsFromFile, openBackupsModal } from './dataManager';
 import { openScenesModal } from './sceneManager';
+import { openGameExportModal, previewGame } from './gameExportModal';
+import { setFullscreen } from '../runtime/fullscreen';
 import { clone } from '../core/util';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
@@ -33,45 +35,123 @@ const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
   effect: 'エフェクト (パーティクル)',
 };
 
-/** カタログのカード一覧 (追加シートと Assets 画面で共用) */
-export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'add'): HTMLElement {
+const CATEGORY_ORDER = ['shape', 'game', 'world', 'ui', 'effect', 'light', 'camera', 'other'] as const;
+
+const CATEGORY_SHORT: Record<CatalogItem['category'], string> = {
+  shape: '形',
+  world: '地形・水',
+  camera: 'カメラ',
+  light: 'ライト',
+  other: 'その他',
+  game: 'ゲーム',
+  ui: '画面 UI',
+  effect: 'エフェクト',
+};
+
+const RECENT_KEY = 'pocket-engine:recent-add';
+
+/** 最近「追加」した物 (新しい順・最大 8 個) */
+function recentKinds(): CreateKind[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
+    if (!Array.isArray(list)) return [];
+    return list.filter((k): k is CreateKind => typeof k === 'string' && CATALOG.some((c) => c.kind === k)).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function rememberKind(kind: CreateKind): void {
+  try {
+    const list = [kind, ...recentKinds().filter((k) => k !== kind)].slice(0, 8);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // 保存できなくても追加はできる
+  }
+}
+
+function catalogCard(item: CatalogItem, testId: string, onPick: (kind: CreateKind) => void): HTMLElement {
+  return h(
+    'button',
+    {
+      class: `catalog-item cat-${item.category}`,
+      attrs: { type: 'button', 'data-testid': testId, title: item.description },
+      on: { click: () => onPick(item.kind) },
+    },
+    h('span', { class: 'catalog-icon', html: icon(item.icon, 28) }),
+    h('span', { class: 'catalog-label', text: item.label }),
+    h('span', { class: 'catalog-en', text: item.english }),
+  );
+}
+
+/**
+ * カタログのカード一覧 (追加シートと Assets 画面で共用)。
+ * withNav: 種類へ移動するボタンと「最近使ったもの」を出す (追加シート用)
+ */
+export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'add', opts: { withNav?: boolean } = {}): HTMLElement {
+  const pick = (kind: CreateKind) => {
+    rememberKind(kind);
+    onPick(kind);
+  };
   const root = h('div', { class: 'catalog' });
-  for (const cat of ['shape', 'world', 'game', 'ui', 'effect', 'light', 'camera', 'other'] as const) {
+  const groups = new Map<CatalogItem['category'], HTMLElement>();
+  if (opts.withNav) {
+    const nav = h('nav', { class: 'catalog-nav', attrs: { 'aria-label': '種類へ移動', 'data-testid': `${testPrefix}-nav` } });
+    for (const cat of CATEGORY_ORDER) {
+      nav.appendChild(
+        h('button', {
+          class: 'jump-chip',
+          text: CATEGORY_SHORT[cat],
+          attrs: { type: 'button', 'data-testid': `${testPrefix}-nav-${cat}` },
+          on: { click: () => groups.get(cat)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+        }),
+      );
+    }
+    root.appendChild(nav);
+    const recent = recentKinds()
+      .map((k) => CATALOG.find((c) => c.kind === k))
+      .filter((c): c is CatalogItem => !!c);
+    if (recent.length > 0) {
+      root.appendChild(h('div', { class: 'catalog-title', text: '最近使ったもの' }));
+      root.appendChild(h('div', { class: 'catalog-grid catalog-recent' }, recent.map((item) => catalogCard(item, `${testPrefix}-recent-${item.kind}`, pick))));
+    }
+  }
+  for (const cat of CATEGORY_ORDER) {
     const items = CATALOG.filter((c) => c.category === cat);
-    root.appendChild(h('div', { class: 'catalog-title', text: CATEGORY_LABELS[cat] }));
-    root.appendChild(
-      h(
-        'div',
-        { class: 'catalog-grid' },
-        items.map((item) =>
-          h(
-            'button',
-            {
-              class: `catalog-item cat-${cat}`,
-              attrs: { type: 'button', 'data-testid': `${testPrefix}-${item.kind}`, title: item.description },
-              on: { click: () => onPick(item.kind) },
-            },
-            h('span', { class: 'catalog-icon', html: icon(item.icon, 28) }),
-            h('span', { class: 'catalog-label', text: item.label }),
-            h('span', { class: 'catalog-en', text: item.english }),
-          ),
-        ),
-      ),
-    );
+    const title = h('div', { class: 'catalog-title', text: CATEGORY_LABELS[cat], attrs: { 'data-category': cat } });
+    groups.set(cat, title);
+    root.appendChild(title);
+    root.appendChild(h('div', { class: 'catalog-grid' }, items.map((item) => catalogCard(item, `${testPrefix}-${item.kind}`, pick))));
   }
   return root;
 }
 
+/** 置く場所に関係なく、決まった位置に置く物 (カメラ・全体を照らすライト) */
+// 世界全体に関わる物 (地形・水面・環境の光・カメラ) は、見ている場所ではなく決まった位置に置く
+const FIXED_POSITION = new Set<CreateKind>([
+  'camera',
+  'light-directional',
+  'light-hemisphere',
+  'light-ambient',
+  'terrain-flat',
+  'terrain-hills',
+  'terrain-island',
+  'terrain-mountains',
+  'water',
+]);
+
 export function addFromCatalog(ctx: AppContext, kind: CreateKind, at?: { x: number; y: number }): string | null {
   const vp = ctx.viewport;
   const ground = vp.placementPoint(at);
-  const probe = kind;
   let position: Vec3 | undefined;
-  if (['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'].includes(probe)) {
-    const y = probe === 'plane' ? 0 : probe === 'capsule' ? 1 : 0.5;
+  if (['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'].includes(kind)) {
+    const y = kind === 'plane' ? 0 : kind === 'capsule' ? 1 : 0.5;
     position = [ground[0], ground[1] + y, ground[2]];
-  } else if (kind === 'empty') {
-    position = [ground[0], ground[1], ground[2]];
+  } else if (!kind.startsWith('ui-') && !FIXED_POSITION.has(kind)) {
+    // ゲーム用オブジェクト・エフェクト・ライトなども、見ている場所 (長押しした場所) に置く。
+    // 高さは種類ごとの標準 (地面からの高さ) を保つ
+    const y = createEntity(kind).transform.position[1];
+    position = [ground[0], ground[1] + y, ground[2]];
   }
   const id = A.addEntity(ctx.editor, kind, { position });
   if (id) {
@@ -86,10 +166,14 @@ export function openAddSheet(ctx: AppContext, at?: { x: number; y: number }): vo
     title: at ? 'ここに追加' : 'オブジェクトを追加',
     className: 'add-sheet',
     testId: 'add-sheet',
-    content: catalogGrid((kind) => {
-      modal.close();
-      addFromCatalog(ctx, kind, at);
-    }),
+    content: catalogGrid(
+      (kind) => {
+        modal.close();
+        addFromCatalog(ctx, kind, at);
+      },
+      'add',
+      { withNav: true },
+    ),
   });
 }
 
@@ -175,6 +259,18 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
       : []),
     'separator',
     { label: 'フォーカス', icon: 'focus', shortcut: 'F', onSelect: () => ed.requestFocus(ids) },
+    ...(e.kind !== 'ui'
+      ? [
+          {
+            label: '地面に置く (下にそろえる)',
+            icon: 'arrowDown',
+            testId: 'menu-drop',
+            onSelect: () => {
+              if (!ctx.viewport.dropToGround(ids)) toast('すでに地面の上にあります', 'info', 1400);
+            },
+          } as ActionItem,
+        ]
+      : []),
     {
       label: e.visible ? '非表示にする' : '表示する',
       icon: e.visible ? 'eyeOff' : 'eye',
@@ -346,6 +442,20 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
+    { label: 'ゲームを書き出す…', icon: 'gamepad', onSelect: () => openGameExportModal(ctx), testId: 'menu-export-game', hint: 'ZIP / HTML' },
+    {
+      label: '全画面でテストプレイ',
+      icon: 'fullscreen',
+      testId: 'menu-play-fullscreen',
+      hint: 'タイトル画面から',
+      onSelect: () => {
+        // 全画面はタップの直後にしか始められないため、先に全画面にしてから Play する
+        void setFullscreen(true);
+        ctx.play.play({ showTitle: true });
+      },
+    },
+    { label: '書き出したゲームを新しいタブで遊ぶ', icon: 'play', onSelect: () => void previewGame(ctx), testId: 'menu-preview-game' },
+    'separator',
     { label: 'プロジェクトを書き出し (.pocket.zip)', icon: 'download', onSelect: () => void exportProjectZip(ctx), testId: 'menu-export-zip', hint: 'アセットも含む' },
     { label: 'プロジェクトを書き出し (.json)', icon: 'download', onSelect: () => p.exportProject(), testId: 'menu-export' },
     { label: 'プロジェクトを読み込み (.zip / .json)', icon: 'upload', onSelect: () => void importProjectsFromFile(ctx), testId: 'menu-import' },
@@ -369,7 +479,7 @@ export function showAbout(): void {
     content: h(
       'div',
       { class: 'about' },
-      h('p', { html: '<b>Pocket Engine</b> v0.1 (Phase 1)' }),
+      h('p', { html: '<b>Pocket Engine</b> v1.0' }),
       h('p', { text: 'スマートフォンのブラウザだけで 3D ゲームを作って遊べるゲームエンジンです。データはすべてこの端末のブラウザ内に保存され、外部サーバーには送信されません。' }),
       h('p', { class: 'muted', text: '描画: Three.js (WebGL)' }),
     ),

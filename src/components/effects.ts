@@ -76,11 +76,11 @@ export function registerEffectComponents(): void {
       { key: 'amount', label: '量', type: 'number', min: 0.05, max: 5, step: 0.1, hint: '倍率' },
       { key: 'size', label: '大きさ', type: 'number', min: 0.05, max: 10, step: 0.1, hint: '倍率' },
       { key: 'speed', label: '勢い', type: 'number', min: 0, max: 10, step: 0.1, hint: '倍率' },
-      { key: 'areaScale', label: '範囲 (雨・雪)', type: 'number', min: 0.1, max: 20, step: 0.5, hint: '倍率' },
+      { key: 'areaScale', label: '範囲 (雨・雪)', type: 'number', min: 0.1, max: 20, step: 0.5, hint: '倍率', advanced: true },
       { key: 'playOnStart', label: '最初から出す', type: 'boolean', hint: 'OFF ならイベントで出す' },
-      { key: 'customColor', label: '色を変える', type: 'boolean' },
-      { key: 'color', label: '出始めの色', type: 'color' },
-      { key: 'colorEnd', label: '消える前の色', type: 'color' },
+      { key: 'customColor', label: '色を変える', type: 'boolean', advanced: true },
+      { key: 'color', label: '出始めの色', type: 'color', advanced: true },
+      { key: 'colorEnd', label: '消える前の色', type: 'color', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;
@@ -197,8 +197,8 @@ export function registerEffectComponents(): void {
     defaults: () => ({ intensity: 1, runSpeed: 5, lean: true }),
     schema: [
       { key: 'intensity', label: '動きの大きさ', type: 'number', min: 0, max: 3, step: 0.1, hint: '倍率' },
-      { key: 'runSpeed', label: '「走る」になる速さ', type: 'number', min: 0.5, max: 50, step: 0.5, unit: 'm/秒' },
-      { key: 'lean', label: '走るとき前に傾く', type: 'boolean' },
+      { key: 'runSpeed', label: '「走る」になる速さ', type: 'number', min: 0.5, max: 50, step: 0.5, unit: 'm/秒', advanced: true },
+      { key: 'lean', label: '走るとき前に傾く', type: 'boolean', advanced: true },
     ],
     create(ctx, props) {
       const rt = ctx.runtime;

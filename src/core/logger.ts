@@ -1,3 +1,5 @@
+import { explainError } from './errorHints';
+
 /**
  * ログ収集。デバッグコンソールはここに溜まったログを表示する。
  */
@@ -12,12 +14,15 @@ export interface LogEntry {
   detail?: string;
   /** 関係するオブジェクト (コンソールから選択できる) */
   entityId?: string;
+  /** 初心者向けの原因と直し方 */
+  hint?: string;
   /** 通し番号 */
   seq: number;
 }
 
 export interface LogOptions {
   entityId?: string;
+  hint?: string;
 }
 
 type LogListener = (entry: LogEntry) => void;
@@ -39,6 +44,7 @@ class Logger {
       source,
       detail: detail instanceof Error ? (detail.stack ?? detail.message) : detail !== undefined && detail !== '' ? String(detail) : undefined,
       entityId: opts.entityId,
+      hint: opts.hint ?? (level !== 'info' ? (explainError(detail) ?? undefined) : undefined),
       seq: ++this.seq,
     };
     if (level === 'error') this.unreadErrors++;
@@ -97,7 +103,7 @@ class Logger {
       .map((e) => {
         const t = new Date(e.time);
         const hh = [t.getHours(), t.getMinutes(), t.getSeconds()].map((v) => String(v).padStart(2, '0')).join(':');
-        return `${hh} [${lv[e.level]}]${e.source ? ` (${e.source})` : ''} ${e.message}${e.detail ? `\n${e.detail}` : ''}`;
+        return `${hh} [${lv[e.level]}]${e.source ? ` (${e.source})` : ''} ${e.message}${e.hint ? `\n  ヒント: ${e.hint}` : ''}${e.detail ? `\n${e.detail}` : ''}`;
       })
       .join('\n');
   }

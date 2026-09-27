@@ -1,0 +1,157 @@
+/* 書き出したゲームの画面 (エディタの CSS は使わない) */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --font: system-ui, -apple-system, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic UI', Meiryo, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font);
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.player-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+
+/* PC の横長の画面で縦向きのゲーム: 中央に縦長の枠で表示する */
+.player-root.frame-portrait {
+  /* 左右 0 + 幅指定 + margin auto で中央に置く (ページ側の #game の指定に左右されない) */
+  width: min(100vw, calc(100vh * 9 / 16));
+  margin: 0 auto;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+}
+
+.player-view,
+.player-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.player-view canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.player-overlay {
+  z-index: 2;
+}
+
+/* 起動中・エラー */
+.pg-boot,
+.pg-fatal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: #fff;
+}
+
+.pg-boot b {
+  font-size: 24px;
+}
+
+.pg-boot span {
+  opacity: 0.7;
+  font-size: 14px;
+}
+
+.pg-fatal {
+  background: #16181d;
+}
+
+.pg-fatal h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.pg-fatal p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+.pg-fatal button {
+  min-height: 44px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 12px;
+  background: #3d8bff;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+}
+
+/* 画面の向きが合わないとき */
+.pg-rotate {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(10, 12, 16, 0.94);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  padding: 24px;
+}
+
+.pg-rotate svg {
+  animation: pg-rotate 2.2s ease-in-out infinite;
+}
+
+.pg-rotate[hidden] {
+  display: none;
+}
+
+@keyframes pg-rotate {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  50%,
+  70% {
+    transform: rotate(90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
