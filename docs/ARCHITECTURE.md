@@ -132,6 +132,21 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
 - 部品 (Prefab): `core/prefabs.ts`。`PrefabEntry` はサブツリーのエンティティをそのまま保存し、置くときに ID を振り直す。
   置いた物は `EntityData.prefab` で部品とつながる。大量配置の位置は決まった乱数 (seed) で計算するので同じ設定なら同じ配置
 
+### 地形・空・画面の効果 (Phase 7)
+
+- 地形: `core/terrain.ts` (高さの格子・生成・ブラシ。DOM 非依存)、`engine/terrainMesh.ts` (格子のメッシュ・
+  高さと傾きによる頂点カラー・光線との交点を格子を進んで求める)、`engine/TerrainBrush.ts` (ブラシ編集)。
+  ブラシは `ViewportInput.tool` として 1 本指のドラッグを受け持ち、なぞっている間は作業用のコピーで見た目だけ更新、
+  指を離したら `setEntityValue('terrain.heights')` で 1 回の Undo にする。物理は cannon-es の `Heightfield`
+  (`colliderShapes.terrainHeightfield`。XY 平面の格子を X 軸で -90° 回すため行の順番を逆にする)
+- 時刻: `engine/sky.ts` (時刻 → 太陽の方向・空の色・明るさ、星・月・雲・稲妻のオブジェクト)。
+  `SceneEnvironment` が太陽光 (DirectionalLight) の向き・色・明るさをデータを変えずに上書きする
+  (元の値は `light.userData.baseIntensity / baseColor`)。Play 中の時刻は `GameRuntime.setHour()` で進め、
+  空の画像 (PMREM) の作り直しは画質に応じて間引く
+- 画面の効果: `engine/PostProcessor.ts` (EffectComposer を動的 import)。`EngineRenderer.setPost()` で
+  描画する側 (エディタ / ランタイム) が毎フレーム設定し、低画質では使わない。
+  順番は 描画 → 被写界深度 → ブルーム → OutputPass (トーンマッピング・sRGB) → 色あい・周辺減光
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
