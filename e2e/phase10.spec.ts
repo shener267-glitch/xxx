@@ -218,7 +218,8 @@ test('新しいタブで遊ぶ・全画面でテストプレイ・ゲーム設�
   await expect(page.getByTestId('game-title')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('stop').tap();
   await expect(page.getByTestId('play-hud')).toBeHidden();
-  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  // 全画面の解除は非同期 (fullscreenchange の後に反映される) なので、解除されるまで待つ
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
 
   // ゲーム設定 (インスペクター) からアイコン・作者を設定して書き出し画面を開く
   await evalApp(page, (app) => app.editor.selection.clear());
