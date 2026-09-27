@@ -204,7 +204,7 @@ export function openGameExportModal(ctx: AppContext): void {
   };
   const zipBtn = button({ icon: 'download', label: 'ZIP で書き出す', class: 'primary', testId: 'ge-export-zip', onClick: () => undefined });
   zipBtn.addEventListener('click', busy(zipBtn, () => exportGame(ctx, 'zip')));
-  const htmlBtn = button({ icon: 'download', label: 'HTML 1 つで書き出す', class: 'secondary', testId: 'ge-export-html', onClick: () => undefined });
+  const htmlBtn = button({ icon: 'download', label: 'HTML で書き出す', class: 'secondary', testId: 'ge-export-html', onClick: () => undefined });
   htmlBtn.addEventListener('click', busy(htmlBtn, () => exportGame(ctx, 'html')));
   const previewBtn = button({ icon: 'play', label: '新しいタブで遊ぶ', class: 'secondary', testId: 'ge-preview', onClick: () => void previewGame(ctx) });
 

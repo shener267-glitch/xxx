@@ -348,7 +348,7 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
-    { label: 'ゲームを書き出す…', icon: 'gamepad', onSelect: () => openGameExportModal(ctx), testId: 'menu-export-game', hint: 'ZIP / HTML ・ GitHub Pages' },
+    { label: 'ゲームを書き出す…', icon: 'gamepad', onSelect: () => openGameExportModal(ctx), testId: 'menu-export-game', hint: 'ZIP / HTML' },
     {
       label: '全画面でテストプレイ',
       icon: 'fullscreen',
