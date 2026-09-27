@@ -34,3 +34,13 @@ test('スモーク: 起動 → Cube 追加 → 選択 → Play/Stop → 保存',
   await expect(page.getByTestId('save')).toHaveAttribute('data-state', 'saved');
   expect(errors.filter((e) => !/GPU stall|swiftshader|WebGL/i.test(e))).toEqual([]);
 });
+
+test('スモーク: 書き出したゲームの本体 (player/pocket-player.js) が配信されている', async ({ page, request }) => {
+  await page.goto('./');
+  const url = new URL('player/pocket-player.js', page.url()).href;
+  const res = await request.get(url);
+  expect(res.status()).toBe(200);
+  const js = await res.text();
+  expect(js).toContain('__POCKET_GAME__');
+  expect(js.length).toBeGreaterThan(100_000);
+});

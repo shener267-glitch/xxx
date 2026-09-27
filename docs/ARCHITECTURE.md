@@ -34,7 +34,7 @@
 3. **イベント駆動の表示更新**: `SceneModel` が `entity-added / removed / changed / hierarchy-changed / scene-loaded`
    を発行し、`SceneBridge` (3D) と各パネル (UI) が差分だけを更新する。
 4. **core は DOM・描画に依存しない**: `tests/` の単体テストで Node 上から検証できる。
-5. **runtime はエディタに依存しない**: Phase 6 のゲーム書き出しでは runtime だけを同梱すればよい。
+5. **runtime はエディタに依存しない**: Phase 10 のゲーム書き出しでは runtime と engine だけを同梱する (`player/`)。
 
 ## データモデル (core/types.ts)
 
@@ -171,6 +171,20 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
 - 他のプロジェクトから取り込む: `AssetService.importFromProject()` (部品の中のアセットの参照をたどって一緒に取り込み、
   ID が重なるものは付け替えて部品の中の参照も置き換える)
 
+### ゲームの書き出し (Phase 10)
+
+- 書き出したゲームの本体: `player/main.ts` → `player/StandalonePlayer.ts`。`runtime/` と `engine/` だけを使い、
+  エディタ (`ui/` のパネル・`app/`) は含まない。`vite.player.config.ts` で **1 つの IIFE** (`dist/player/pocket-player.js`、
+  CSS も埋め込み、動的 import もまとめる) にビルドするので `<script src>` でも file:// でも動く
+- データ: `game-data.js` = `window.__POCKET_GAME__ = { format, version, project, assets: { ID: { mime, base64 } } }`。
+  `core/gameExport.ts` が作る (`</script>` や U+2028 で壊れない JSON)。プレイヤーはアセットを必要になったときに Blob にする
+- 書き出し: `app/GameExporter.ts` がエディタと同じ場所の `player/pocket-player.js` を読み込み、アセットの本体とアイコン
+  (Canvas で 192 / 512 の PNG) を集めて、`core/gameExport.ts` で ZIP (`index.html` + 本体 + データ + manifest + `.nojekyll`)
+  または 1 つの HTML にする。開発サーバーではプレイヤーを求められたときにその場でビルドする (`vite.config.ts` のプラグイン)
+- `GameRuntime` に `extraSettings` / `extraTitle` (設定画面・タイトル画面に足す項目) と `setQuality()` を追加。
+  プレイヤーが画質 (自動 / 低 / 中 / 高) と全画面 (`runtime/fullscreen.ts`、webkit 付きにも対応) を足す
+- 画面の向き: `GameSettings.orientation`。スマホで合わなければ案内、PC で縦向きのゲームは縦長の枠
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -207,4 +221,4 @@ registerComponent({
 
 | フェーズ | 追加場所 |
 | --- | --- |
-| 書き出し | `runtime/` のみを含むプレイヤー用エントリーポイント + ZIP 生成 |
+| 書き出し先の追加 (itch.io など) | `core/gameExport.ts` のファイル一覧・`app/GameExporter.ts` |
