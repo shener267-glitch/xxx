@@ -237,6 +237,52 @@ export interface WeatherData {
   type: WeatherType;
   /** 強さ 0〜1 */
   intensity: number;
+  /** 雷 (雨のとき) */
+  lightning: boolean;
+}
+
+/** 時刻と昼夜 */
+export interface TimeOfDayData {
+  /** 時刻で太陽・空・明るさを変える */
+  enabled: boolean;
+  /** 時刻 (0〜24) */
+  hour: number;
+  /** Play 中に時間を進める */
+  cycle: boolean;
+  /** 1 日の長さ (実時間の分) */
+  dayMinutes: number;
+  /** 太陽の通り道の向き (度, 0 = 東から昇る) */
+  sunDirection: number;
+  /** 夜に星を出す */
+  stars: boolean;
+  /** 月を出す */
+  moon: boolean;
+}
+
+export interface CloudData {
+  enabled: boolean;
+  /** 雲の量 0〜1 */
+  amount: number;
+  /** 流れる速さ (m/秒) */
+  speed: number;
+  /** 雲の高さ (m) */
+  height: number;
+  color: string;
+}
+
+/** 画面全体の効果 (ポストエフェクト) */
+export interface PostEffectsData {
+  /** 光のにじみ (明るい所がふわっと光る) */
+  bloom: { enabled: boolean; strength: number; threshold: number; radius: number };
+  /** 被写界深度 (ピントの合っていない所をぼかす) */
+  dof: { enabled: boolean; focus: number; blur: number; autoFocus: boolean };
+  /** 周辺を暗く (0〜1) */
+  vignette: number;
+  /** 色あい (-1〜1) */
+  saturation: number;
+  contrast: number;
+  /** 色味 (暖かい / 寒い, -1〜1) */
+  warmth: number;
 }
 
 export interface EnvironmentData {
@@ -249,6 +295,9 @@ export interface EnvironmentData {
   /** 全体の明るさ (露出) */
   exposure: number;
   weather: WeatherData;
+  time: TimeOfDayData;
+  clouds: CloudData;
+  post: PostEffectsData;
 }
 
 export interface PhysicsSettings {

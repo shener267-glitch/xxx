@@ -15,6 +15,7 @@ export const BUILTIN_SFX: SoundInfo[] = [
   { id: 'hit', label: '攻撃' },
   { id: 'damage', label: 'ダメージ' },
   { id: 'explosion', label: '爆発' },
+  { id: 'thunder', label: '雷' },
   { id: 'powerup', label: 'パワーアップ' },
   { id: 'heal', label: '回復' },
   { id: 'save', label: 'セーブ' },

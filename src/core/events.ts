@@ -134,6 +134,13 @@ function who(ctx: SummaryContext, id: unknown, any = 'どれか'): string {
 // トリガー (いつ)
 // ------------------------------------------------------------------
 
+const WEATHER_OPTIONS = [
+  { value: 'none', label: '晴れ' },
+  { value: 'rain', label: '雨' },
+  { value: 'storm', label: '雷雨' },
+  { value: 'snow', label: '雪' },
+];
+
 const TRIGGERS: BlockDef[] = [
   { type: 'start', kind: 'trigger', label: 'ゲームが始まったとき', icon: 'play', group: 'ゲーム', params: [], summary: () => 'ゲームが始まったとき' },
   {
@@ -154,6 +161,8 @@ const TRIGGERS: BlockDef[] = [
     params: [num('seconds', '時間', 3, { min: 0, max: 36000, step: 0.5, unit: '秒' })],
     summary: (p) => `始まってから${n(p.seconds, 3)}秒たったとき`,
   },
+  { type: 'morning', kind: 'trigger', label: '朝になったとき', icon: 'sun', group: '時間', params: [], summary: () => '朝になったとき (時刻が 5 時)' },
+  { type: 'night', kind: 'trigger', label: '夜になったとき', icon: 'moon', group: '時間', params: [], summary: () => '夜になったとき (時刻が 19 時)' },
   {
     type: 'touch',
     kind: 'trigger',
@@ -260,6 +269,15 @@ const TRIGGERS: BlockDef[] = [
 // ------------------------------------------------------------------
 
 const CONDITIONS: BlockDef[] = [
+  {
+    type: 'clock',
+    kind: 'condition',
+    label: '時刻 (○時〜○時)',
+    icon: 'sun',
+    group: '時間',
+    params: [num('from', 'から', 19, { min: 0, max: 24, step: 0.5, unit: '時' }), num('to', 'まで', 5, { min: 0, max: 24, step: 0.5, unit: '時' })],
+    summary: (p) => `時刻が ${n(p.from, 19)}時〜${n(p.to, 5)}時`,
+  },
   {
     type: 'var',
     kind: 'condition',
@@ -428,6 +446,24 @@ const ACTIONS: BlockDef[] = [
     group: '音',
     params: [{ key: 'sound', label: '音', type: 'sound', default: 'builtin:powerup' }, num('volume', '音量', 1, { min: 0, max: 1, step: 0.05 })],
     summary: (p, c) => `効果音 ${c.soundName(s(p.sound))} を鳴らす`,
+  },
+  {
+    type: 'setTime',
+    kind: 'action',
+    label: '時刻を変える',
+    icon: 'sun',
+    group: '環境',
+    params: [num('hour', '時刻', 18, { min: 0, max: 24, step: 0.5, unit: '時' })],
+    summary: (p) => `時刻を ${n(p.hour, 18)}時にする`,
+  },
+  {
+    type: 'weather',
+    kind: 'action',
+    label: '天気を変える',
+    icon: 'cloud',
+    group: '環境',
+    params: [{ key: 'weather', label: '天気', type: 'select', default: 'rain', options: WEATHER_OPTIONS }],
+    summary: (p) => `天気を${WEATHER_OPTIONS.find((o) => o.value === s(p.weather))?.label ?? '?'}にする`,
   },
   {
     type: 'music',

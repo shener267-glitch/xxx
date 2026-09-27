@@ -1,7 +1,10 @@
 import {
   defaultModel,
   defaultCamera,
+  defaultClouds,
   defaultEnvironment,
+  defaultPostEffects,
+  defaultTimeOfDay,
   defaultGameSettings,
   defaultLight,
   defaultMaterial,
@@ -20,7 +23,10 @@ import type {
   ComponentData,
   EntityData,
   EntityKind,
+  CloudData,
   EnvironmentData,
+  PostEffectsData,
+  TimeOfDayData,
   GameSettings,
   LightType,
   MusicData,
@@ -292,7 +298,64 @@ function sanitizeEnvironment(env: Obj): EnvironmentData {
     weather: {
       type: oneOf(weather.type, WEATHERS, d.weather.type),
       intensity: num(weather.intensity, d.weather.intensity),
+      lightning: bool(weather.lightning, false),
     },
+    time: sanitizeTime(env.time),
+    clouds: sanitizeClouds(env.clouds),
+    post: sanitizePost(env.post),
+  };
+}
+
+const clampNum = (v: unknown, d: number, min: number, max: number) => Math.max(min, Math.min(max, num(v, d)));
+
+function sanitizeTime(raw: unknown): TimeOfDayData {
+  const d = defaultTimeOfDay();
+  const t = isObj(raw) ? raw : {};
+  return {
+    enabled: bool(t.enabled, d.enabled),
+    hour: ((num(t.hour, d.hour) % 24) + 24) % 24,
+    cycle: bool(t.cycle, d.cycle),
+    dayMinutes: clampNum(t.dayMinutes, d.dayMinutes, 0.1, 1440),
+    sunDirection: num(t.sunDirection, d.sunDirection),
+    stars: bool(t.stars, d.stars),
+    moon: bool(t.moon, d.moon),
+  };
+}
+
+function sanitizeClouds(raw: unknown): CloudData {
+  const d = defaultClouds();
+  const c = isObj(raw) ? raw : {};
+  return {
+    enabled: bool(c.enabled, d.enabled),
+    amount: clampNum(c.amount, d.amount, 0, 1),
+    speed: clampNum(c.speed, d.speed, 0, 100),
+    height: clampNum(c.height, d.height, 5, 2000),
+    color: color(c.color, d.color),
+  };
+}
+
+function sanitizePost(raw: unknown): PostEffectsData {
+  const d = defaultPostEffects();
+  const p = isObj(raw) ? raw : {};
+  const b = isObj(p.bloom) ? p.bloom : {};
+  const f = isObj(p.dof) ? p.dof : {};
+  return {
+    bloom: {
+      enabled: bool(b.enabled, d.bloom.enabled),
+      strength: clampNum(b.strength, d.bloom.strength, 0, 3),
+      threshold: clampNum(b.threshold, d.bloom.threshold, 0, 1),
+      radius: clampNum(b.radius, d.bloom.radius, 0, 1),
+    },
+    dof: {
+      enabled: bool(f.enabled, d.dof.enabled),
+      focus: clampNum(f.focus, d.dof.focus, 0.1, 1000),
+      blur: clampNum(f.blur, d.dof.blur, 0, 1),
+      autoFocus: bool(f.autoFocus, d.dof.autoFocus),
+    },
+    vignette: clampNum(p.vignette, d.vignette, 0, 1),
+    saturation: clampNum(p.saturation, d.saturation, -1, 1),
+    contrast: clampNum(p.contrast, d.contrast, -1, 1),
+    warmth: clampNum(p.warmth, d.warmth, -1, 1),
   };
 }
 

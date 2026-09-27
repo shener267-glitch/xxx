@@ -73,6 +73,17 @@ class FakeHost implements EventHost {
   changeScene(id: string) {
     this.calls.push(`scene:${id}`);
   }
+  hour = 12;
+  getHour() {
+    return this.hour;
+  }
+  setHour(h: number) {
+    this.hour = h;
+    this.calls.push(`hour:${h}`);
+  }
+  setWeather(type: string, lightning: boolean) {
+    this.calls.push(`weather:${type}:${lightning}`);
+  }
   playAnimation(id: string, clip: string) {
     this.calls.push(`anim:${id}:${clip}`);
   }
@@ -362,5 +373,28 @@ describe('イベントのデータ', () => {
     p.scenes[0].events = [r];
     p.variables = [{ id: 'v1', name: '体力', initial: 3 }];
     expect(parseProjectJson(JSON.stringify(p))).toEqual(p);
+  });
+});
+
+describe('時刻と天気のイベント', () => {
+  it('夜になったとき・時刻の条件・時刻と天気を変える', () => {
+    const host = new FakeHost();
+    const night = rule(createBlock('trigger', 'night'), [createBlock('action', 'setTime', { hour: 22 }), createBlock('action', 'weather', { weather: 'storm' })]);
+    const c = createBlock('condition', 'clock', { from: 20, to: 4 });
+    const every = rule(createBlock('trigger', 'every', { seconds: 1 }), [createBlock('action', 'message', { text: '夜' })], [c]);
+    const sys = new EventSystem([night, every], host);
+    sys.onGameEvent('morning', '');
+    sys.update(0.016);
+    expect(host.calls).toEqual([]);
+    sys.onGameEvent('night', '');
+    sys.update(0.016);
+    expect(host.calls).toEqual(['hour:22', 'weather:rain:true']);
+    // 22 時は 20 時〜4 時に入る (日をまたぐ指定)
+    sys.update(1);
+    expect(host.calls.filter((x) => x.startsWith('toast')).length).toBe(1);
+    host.hour = 12;
+    sys.update(1);
+    expect(host.calls.filter((x) => x.startsWith('toast')).length).toBe(1);
+    expect(summarize('condition', c, { entityName: () => '', soundName: () => '' } as never)).toBe('時刻が 20時〜4時');
   });
 });

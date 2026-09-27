@@ -100,7 +100,7 @@ export class InspectorPanel {
     if (list.length === 0) {
       const sd = this.ctx.editor.sceneData;
       const env = sd.environment;
-      return `scene:${sd.id}:${env.sky.type}:${env.fog.enabled}:${env.weather.type}`;
+      return `scene:${sd.id}:${env.sky.type}:${env.fog.enabled}:${env.weather.type}:${env.time.enabled}:${env.clouds.enabled}:${env.post.bloom.enabled}:${env.post.dof.enabled}`;
     }
     return list
       .map((e) =>
@@ -272,13 +272,102 @@ export class InspectorPanel {
     if (env().weather.type !== 'none') {
       weatherRows.push(
         sliderRow('強さ', 0.05, 1, 0.05, () => env().weather.intensity, (v) => setEnv({ weather: { ...env().weather, intensity: v } }, '天候の強さを変更', 'weather')),
-        h('p', { class: 'field-note', text: '天候は Play 中に表示されます (設定の「エフェクトのプレビュー」で編集中も表示)。' }),
+      );
+      if (env().weather.type === 'rain') {
+        const bolt = new Toggle({ title: '雷', testId: 'env-lightning', onChange: (v) => setEnv({ weather: { ...env().weather, lightning: v } }, v ? '雷を有効化' : '雷を無効化') });
+        this.bind(() => bolt.set(env().weather.lightning));
+        weatherRows.push(fieldRow('雷', bolt.el, { hint: 'ときどき稲妻が光って雷の音がする' }));
+      }
+      weatherRows.push(h('p', { class: 'field-note', text: '天候は Play 中に表示されます (設定の「エフェクトのプレビュー」で編集中も表示)。' }));
+    }
+
+    // 時刻・昼と夜
+    const tod = () => env().time;
+    const setTime = (patch: Partial<EnvironmentData['time']>, label: string, key?: string) => setEnv({ time: { ...tod(), ...patch } }, label, key);
+    const timeOn = new Toggle({ title: '時刻を使う', testId: 'env-time', onChange: (v) => setTime({ enabled: v }, v ? '時刻 (昼夜) を有効化' : '時刻 (昼夜) を無効化') });
+    this.bind(() => timeOn.set(tod().enabled));
+    const timeRows: HTMLElement[] = [fieldRow('時刻で空と光を変える', timeOn.el, { hint: '太陽が動き、夕焼け・夜・星・月になる' })];
+    if (tod().enabled) {
+      const clock = h('span', { class: 'readonly-value', attrs: { 'data-testid': 'env-clock' } });
+      this.bind(() => (clock.textContent = formatClock(tod().hour)));
+      const cycle = new Toggle({ title: '時間を進める', testId: 'env-cycle', onChange: (v) => setTime({ cycle: v }, '時間の進み方を変更') });
+      this.bind(() => cycle.set(tod().cycle));
+      const minutes = new NumberField({ step: 0.5, min: 0.1, max: 1440, title: '1 日の長さ (分)', testId: 'env-day-minutes', onChange: (v) => setTime({ dayMinutes: v }, '1 日の長さを変更', 'dayMinutes') });
+      this.bind(() => minutes.set(tod().dayMinutes));
+      const stars = new Toggle({ title: '星', testId: 'env-stars', onChange: (v) => setTime({ stars: v }, '星の表示を変更') });
+      this.bind(() => stars.set(tod().stars));
+      const moon = new Toggle({ title: '月', testId: 'env-moon', onChange: (v) => setTime({ moon: v }, '月の表示を変更') });
+      this.bind(() => moon.set(tod().moon));
+      timeRows.push(
+        sliderRow('時刻', 0, 24, 0.25, () => tod().hour, (v) => setTime({ hour: v % 24 }, '時刻を変更', 'hour'), 'env-hour'),
+        fieldRow('いまの時刻', clock),
+        fieldRow('Play 中に時間を進める', cycle.el),
+        fieldRow('1 日の長さ', minutes.el, { hint: '実際の時間で何分か' }),
+        sliderRow('太陽の通り道の向き', 0, 360, 5, () => tod().sunDirection, (v) => setTime({ sunDirection: v }, '太陽の向きを変更', 'sunDirection'), 'env-sun-dir', '度'),
+        fieldRow('星', stars.el),
+        fieldRow('月', moon.el),
+        h('p', { class: 'field-note', text: '「太陽光」オブジェクトの向きと明るさは時刻で決まります (夜は月の光になります)。イベントの「時刻を変える」「夜になったとき」でも使えます。' }),
       );
     }
+
+    // 雲
+    const clouds = () => env().clouds;
+    const setClouds = (patch: Partial<EnvironmentData['clouds']>, label: string, key?: string) => setEnv({ clouds: { ...clouds(), ...patch } }, label, key);
+    const cloudOn = new Toggle({ title: '雲', testId: 'env-clouds', onChange: (v) => setClouds({ enabled: v }, v ? '雲を有効化' : '雲を無効化') });
+    this.bind(() => cloudOn.set(clouds().enabled));
+    const cloudRows: HTMLElement[] = [fieldRow('雲を出す', cloudOn.el)];
+    if (clouds().enabled) {
+      const height = new NumberField({ step: 5, min: 5, max: 2000, title: '雲の高さ (m)', testId: 'env-cloud-height', onChange: (v) => setClouds({ height: v }, '雲の高さを変更', 'cloudHeight') });
+      this.bind(() => height.set(clouds().height));
+      cloudRows.push(
+        sliderRow('量', 0, 1, 0.05, () => clouds().amount, (v) => setClouds({ amount: v }, '雲の量を変更', 'cloudAmount'), 'env-cloud-amount'),
+        sliderRow('流れる速さ', 0, 30, 0.5, () => clouds().speed, (v) => setClouds({ speed: v }, '雲の速さを変更', 'cloudSpeed'), 'env-cloud-speed', 'm/秒'),
+        fieldRow('高さ', height.el, { hint: 'm' }),
+        colorRow('色', () => clouds().color, (hex) => setClouds({ color: hex }, '雲の色を変更', 'cloudColor'), 'env-cloud-color'),
+      );
+    }
+
+    // ポストエフェクト
+    const post = () => env().post;
+    const setPost = (patch: Partial<EnvironmentData['post']>, label: string, key?: string) => setEnv({ post: { ...post(), ...patch } }, label, key);
+    const bloomOn = new Toggle({ title: '光のにじみ', testId: 'env-bloom', onChange: (v) => setPost({ bloom: { ...post().bloom, enabled: v } }, v ? '光のにじみを有効化' : '光のにじみを無効化') });
+    this.bind(() => bloomOn.set(post().bloom.enabled));
+    const dofOn = new Toggle({ title: '被写界深度', testId: 'env-dof', onChange: (v) => setPost({ dof: { ...post().dof, enabled: v } }, v ? '被写界深度を有効化' : '被写界深度を無効化') });
+    this.bind(() => dofOn.set(post().dof.enabled));
+    const postRows: HTMLElement[] = [fieldRow('光のにじみ (ブルーム)', bloomOn.el, { hint: '明るい所・光る物がふわっと光る' })];
+    if (post().bloom.enabled) {
+      postRows.push(
+        sliderRow('にじみの強さ', 0, 3, 0.05, () => post().bloom.strength, (v) => setPost({ bloom: { ...post().bloom, strength: v } }, 'にじみを変更', 'bloomStrength'), 'env-bloom-strength'),
+        sliderRow('光り始める明るさ', 0, 1, 0.05, () => post().bloom.threshold, (v) => setPost({ bloom: { ...post().bloom, threshold: v } }, 'にじみを変更', 'bloomThreshold'), 'env-bloom-threshold', '小さいほど多く光る'),
+        sliderRow('にじみの広さ', 0, 1, 0.05, () => post().bloom.radius, (v) => setPost({ bloom: { ...post().bloom, radius: v } }, 'にじみを変更', 'bloomRadius')),
+      );
+    }
+    postRows.push(fieldRow('被写界深度 (ぼかし)', dofOn.el, { hint: 'ピントの合っていない所をぼかす (Play のみ)' }));
+    if (post().dof.enabled) {
+      const auto = new Toggle({ title: 'プレイヤーにピント', testId: 'env-dof-auto', onChange: (v) => setPost({ dof: { ...post().dof, autoFocus: v } }, 'ピントを変更') });
+      this.bind(() => auto.set(post().dof.autoFocus));
+      const focus = new NumberField({ step: 0.5, min: 0.1, max: 1000, title: 'ピントの距離 (m)', testId: 'env-dof-focus', onChange: (v) => setPost({ dof: { ...post().dof, focus: v } }, 'ピントを変更', 'dofFocus') });
+      this.bind(() => focus.set(post().dof.focus));
+      postRows.push(
+        fieldRow('プレイヤーにピントを合わせる', auto.el),
+        fieldRow('ピントの距離', focus.el, { hint: 'プレイヤーがいないとき (m)' }),
+        sliderRow('ぼかしの強さ', 0, 1, 0.05, () => post().dof.blur, (v) => setPost({ dof: { ...post().dof, blur: v } }, 'ぼかしを変更', 'dofBlur'), 'env-dof-blur'),
+      );
+    }
+    postRows.push(
+      sliderRow('周辺を暗く', 0, 1, 0.05, () => post().vignette, (v) => setPost({ vignette: v }, '周辺減光を変更', 'vignette'), 'env-vignette'),
+      sliderRow('あざやかさ', -1, 1, 0.05, () => post().saturation, (v) => setPost({ saturation: v }, '色あいを変更', 'saturation'), 'env-saturation', '-1 で白黒'),
+      sliderRow('コントラスト', -1, 1, 0.05, () => post().contrast, (v) => setPost({ contrast: v }, '色あいを変更', 'contrast'), 'env-contrast'),
+      sliderRow('色味', -1, 1, 0.05, () => post().warmth, (v) => setPost({ warmth: v }, '色あいを変更', 'warmth'), 'env-warmth', '- 寒い / + 暖かい'),
+      h('p', { class: 'field-note', text: '画面全体の効果は Play 中に表示されます (編集中は設定の「エフェクトのプレビュー」で確認)。画質「低」では使いません。' }),
+    );
     return [
       this.section('空・明るさ', 'sun', skyRows, { testId: 'sec-sky' }),
       this.section('霧', 'cloud', fogRows, { collapsed: !env().fog.enabled, testId: 'sec-fog' }),
       this.section('天候', 'cloud', weatherRows, { collapsed: env().weather.type === 'none', testId: 'sec-weather' }),
+      this.section('時刻・昼と夜', 'moon', timeRows, { collapsed: !env().time.enabled, testId: 'sec-time' }),
+      this.section('雲', 'cloud', cloudRows, { collapsed: !env().clouds.enabled, testId: 'sec-clouds' }),
+      this.section('画面の効果', 'sparkles', postRows, { collapsed: true, testId: 'sec-post' }),
     ];
   }
 
@@ -860,4 +949,12 @@ export class InspectorPanel {
     }
     return this.section('階層・ゲーム設定', 'group', rows, { collapsed: false });
   }
+}
+
+/** 時刻 (0〜24) を「10:30」の形にする */
+export function formatClock(hour: number): string {
+  const total = Math.round((((hour % 24) + 24) % 24) * 60);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
 }

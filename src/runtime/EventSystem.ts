@@ -35,6 +35,10 @@ export interface EventHost {
   stopAnimation(entityId: string): void;
   spawnEffect(preset: string, atId: string, scale: number): void;
   setParticles(entityId: string, on: boolean): void;
+  /** 今の時刻 (0〜24) */
+  getHour(): number;
+  setHour(hour: number): void;
+  setWeather(type: 'none' | 'rain' | 'snow', lightning: boolean): void;
   gameClear(message: string): void;
   gameOver(message: string): void;
   log(message: string, level: 'info' | 'warn' | 'error'): void;
@@ -196,6 +200,10 @@ export class EventSystem {
         return ev.event === 'damage' && !!ev.entityId && ev.entityId === this.host.playerId;
       case 'jump':
         return ev.event === 'jump';
+      case 'night':
+        return ev.event === 'night';
+      case 'morning':
+        return ev.event === 'morning';
       case 'key':
         return ev.event === 'key' && String(ev.data).toLowerCase() === str(t.params.key).toLowerCase();
       default:
@@ -228,6 +236,13 @@ export class EventSystem {
         return compare(s.getVar(str(p.name)), opv, parseValue(p.value));
       case 'score':
         return compare(s.score, opv, num(p.value));
+      case 'clock': {
+        const h = this.host.getHour();
+        const from = num(p.from, 19);
+        const to = num(p.to, 5);
+        // 19 時〜5 時のように日をまたぐ指定もできる
+        return from <= to ? h >= from && h < to : h >= from || h < to;
+      }
       case 'money':
         return compare(s.money, opv, num(p.value));
       case 'hp':
@@ -362,6 +377,14 @@ export class EventSystem {
       case 'music':
         h.playMusic(str(p.source) || null);
         break;
+      case 'setTime':
+        h.setHour(num(p.hour, 18));
+        break;
+      case 'weather': {
+        const w = str(p.weather);
+        h.setWeather(w === 'storm' ? 'rain' : w === 'rain' || w === 'snow' ? w : 'none', w === 'storm');
+        break;
+      }
       case 'message':
         h.toast(formatUIText(str(p.text), s), num(p.seconds, 2));
         break;

@@ -86,6 +86,7 @@ export class EditorViewport {
     };
     this.env = new SceneEnvironment(this.scene, engine.renderer, editor.settings.quality);
     this.env.weatherVisible = editor.settings.previewEffects;
+    this.env.animate = editor.settings.previewEffects;
     this.camera = new EditorCamera(engine.width / engine.height);
     this.camera.onChange = () => this.requestRender();
 
@@ -99,6 +100,7 @@ export class EditorViewport {
       this.requestRender();
     };
     this.scene.add(this.bridge.root);
+    this.env.setLightRoot(this.bridge.root);
     this.effects = new EffectPreview(editor, this.bridge, this.scene);
     const syncEffects = debounce(() => {
       this.effects.sync(editor.settings.quality, engine.height);
@@ -162,6 +164,7 @@ export class EditorViewport {
       ev.on('scene-loaded', () => syncEffects()),
       ev.on('selection-changed', () => this.clearPoses()),
       onTextureLoaded(() => this.requestRender()),
+      engine.onPostReady(() => this.requestRender()),
     );
     this.camera.setAspect(engine.width / engine.height);
     this.onSceneLoaded();
@@ -214,6 +217,11 @@ export class EditorViewport {
     if (this.selectionDirty) this.updateSelectionBoxes();
     // グリッドのフェード距離をズームに合わせる
     this.grid.setFadeDistance(Math.max(30, this.camera.distance * 4));
+    // 星・月・雲をカメラに合わせ、時刻による太陽光の向きを反映する
+    if (!this.editor.settings.previewEffects) this.env.refresh(this.camera.camera);
+    else this.env.applyTime();
+    // ポストエフェクトは「エフェクトのプレビュー」が ON のときだけ (被写界深度は Play のみ)
+    this.engine.setPost(this.editor.settings.previewEffects ? this.editor.sceneData.environment.post : null, { noDof: true });
     this.engine.render(this.scene, this.camera.camera);
     for (const fn of this.listeners) fn();
   }
@@ -300,6 +308,7 @@ export class EditorViewport {
     }
     this.env.setQuality(s.quality);
     this.env.setWeatherVisible(s.previewEffects);
+    this.env.animate = s.previewEffects;
     this.effects.sync(s.quality, this.engine.height);
     this.gizmo.refresh();
     this.requestRender();

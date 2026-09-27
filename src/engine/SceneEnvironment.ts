@@ -1,4 +1,5 @@
 import {
+  AmbientLight,
   CanvasTexture,
   Color,
   CubeCamera,
@@ -6,17 +7,20 @@ import {
   EquirectangularReflectionMapping,
   Fog,
   HalfFloatType,
+  HemisphereLight,
   PMREMGenerator,
+  Quaternion,
   Scene,
   SRGBColorSpace,
   Vector3,
   WebGLCubeRenderTarget,
 } from 'three';
-import type { Camera, Object3D, Texture, WebGLRenderer, WebGLRenderTarget } from 'three';
+import type { BufferGeometry, Camera, Line, LineBasicMaterial, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, Points, ShaderMaterial, Texture, WebGLRenderer, WebGLRenderTarget } from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import type { QualityLevel } from '../core/settings';
 import type { EnvironmentData } from '../core/types';
 import { WeatherEffect } from './Weather';
+import { createBolt, createClouds, createMoon, createStars, daylight, nightness, skyColorsAt, sunColorAt, sunDirectionAt, updateClouds } from './sky';
 
 /**
  * シーンの環境 (空・霧・映り込み・天候・露出) を管理する。
@@ -122,6 +126,30 @@ export class SceneEnvironment {
   private sunDir = DEFAULT_SUN.clone();
   /** エディタでは天候を表示しない設定にできる */
   weatherVisible = true;
+  /** 時刻で向きを変える太陽光を探す場所 (シーンのルート) */
+  private lightRoot: Object3D | null = null;
+  /** Play 中の時刻 (null = 設定の時刻) */
+  private hourOverride: number | null = null;
+  private stars: Points<BufferGeometry, ShaderMaterial> | null = null;
+  private moon: Mesh<PlaneGeometry, MeshBasicMaterial> | null = null;
+  private clouds: Mesh<PlaneGeometry, ShaderMaterial> | null = null;
+  private cloudDrift = 0;
+  private lastTime = 0;
+  private lastSkyBuild = -1;
+  private timeDriven = false;
+  /** 空の色 (時刻に合わせた色。背景・霧に使う) */
+  private currentSky = { top: '#3d7fd6', horizon: '#c9dff2', bottom: '#5b6270' };
+  // 雷
+  private flashLight: HemisphereLight | null = null;
+  private bolt: Line<BufferGeometry, LineBasicMaterial> | null = null;
+  private nextStrike = 0;
+  private strikeAt = -1;
+  /** 雷が落ちた回数 (テスト・デバッグ用) */
+  strikes = 0;
+  /** 雷が落ちたとき (音を鳴らすため)。distance はカメラからの距離 (m) */
+  onLightning: ((distance: number) => void) | null = null;
+  /** 時間の経過で動くもの (雲・星のまたたき・雷) を動かす */
+  animate = true;
 
   constructor(
     private scene: Scene,
@@ -136,6 +164,7 @@ export class SceneEnvironment {
     this.quality = q;
     this.skyKey = '';
     this.weatherKey = '';
+    this.removeStars();
     if (this.data) this.apply(this.data, this.sunDir);
   }
 
@@ -147,33 +176,58 @@ export class SceneEnvironment {
   }
 
   /** 環境設定を反映する。sun は太陽のある方向 (無ければ既定値) */
+  setLightRoot(root: Object3D): void {
+    this.lightRoot = root;
+  }
+
+  /** 今の時刻 (0〜24) */
+  get hour(): number {
+    return this.hourOverride ?? this.data?.time.hour ?? 12;
+  }
+
+  /** Play 中に時刻を変える (太陽・空・明るさを更新する。空の作り直しは間引く) */
+  setHour(h: number | null): void {
+    this.hourOverride = h === null ? null : ((h % 24) + 24) % 24;
+    if (!this.data?.time.enabled) return;
+    sunDirectionAt(this.hour, this.data.time.sunDirection, this.sunDir);
+    this.applyTime();
+  }
+
+  /** 太陽のある方向 (時刻を使っているときは時刻から) */
+  get sunDirection(): Vector3 {
+    return this.sunDir;
+  }
+
   apply(env: EnvironmentData, sun?: Vector3 | null): void {
     this.data = env;
-    if (sun) this.sunDir.copy(sun);
+    if (env.time.enabled) sunDirectionAt(this.hour, env.time.sunDirection, this.sunDir);
+    else if (sun) this.sunDir.copy(sun);
     else this.sunDir.copy(DEFAULT_SUN);
     this.renderer.toneMappingExposure = env.exposure;
+    this.updateSkyColors();
 
     // 霧
     if (env.fog.enabled) {
       const near = Math.max(0, env.fog.near);
       const far = Math.max(near + 1, env.fog.far);
+      const fogColor = env.time.enabled ? this.currentSky.horizon : env.fog.color;
       if (this.scene.fog instanceof Fog) {
-        this.scene.fog.color.set(env.fog.color);
+        this.scene.fog.color.set(fogColor);
         this.scene.fog.near = near;
         this.scene.fog.far = far;
       } else {
-        this.scene.fog = new Fog(env.fog.color, near, far);
+        this.scene.fog = new Fog(fogColor, near, far);
       }
     } else {
       this.scene.fog = null;
     }
 
     // 空と映り込み (変化があったときだけ作り直す)
-    const s = this.sunDir;
-    const key = JSON.stringify([env.sky, env.background, env.reflections, this.quality, [s.x, s.y, s.z].map((v) => v.toFixed(2))]);
+    const key = this.computeSkyKey(env);
     if (key !== this.skyKey) {
       this.skyKey = key;
       this.rebuildSky(env);
+      this.lastSkyBuild = this.lastTime;
     }
 
     // 天候
@@ -187,6 +241,136 @@ export class SceneEnvironment {
         this.scene.add(this.weather.points);
       }
     }
+
+    // 星・月・雲
+    const t = env.time;
+    if (t.enabled && t.stars) {
+      if (!this.stars) {
+        this.stars = createStars(this.quality);
+        this.scene.add(this.stars);
+      }
+    } else this.removeStars();
+    if (t.enabled && t.moon) {
+      if (!this.moon) {
+        this.moon = createMoon();
+        this.scene.add(this.moon);
+      }
+    } else if (this.moon) {
+      this.moon.removeFromParent();
+      this.moon.material.map?.dispose();
+      this.moon.material.dispose();
+      this.moon.geometry.dispose();
+      this.moon = null;
+    }
+    if (env.clouds.enabled) {
+      if (!this.clouds) {
+        this.clouds = createClouds();
+        this.scene.add(this.clouds);
+      }
+    } else if (this.clouds) {
+      this.clouds.removeFromParent();
+      this.clouds.material.dispose();
+      this.clouds.geometry.dispose();
+      this.clouds = null;
+    }
+    this.applyTime();
+  }
+
+  private computeSkyKey(env: EnvironmentData): string {
+    const s = this.sunDir;
+    return JSON.stringify([env.sky, env.background, env.reflections, env.time.enabled, this.currentSky, this.quality, [s.x, s.y, s.z].map((v) => v.toFixed(2))]);
+  }
+
+  private removeStars(): void {
+    if (!this.stars) return;
+    this.stars.removeFromParent();
+    this.stars.geometry.dispose();
+    this.stars.material.dispose();
+    this.stars = null;
+  }
+
+  /** 時刻に合わせた空の色 */
+  private updateSkyColors(): void {
+    const env = this.data;
+    if (!env) return;
+    if (!env.time.enabled) {
+      this.currentSky = { top: env.sky.topColor, horizon: env.sky.horizonColor, bottom: env.sky.bottomColor };
+      return;
+    }
+    const day = env.sky.type === 'color' ? { top: env.background, horizon: env.background, bottom: env.background } : { top: env.sky.topColor, horizon: env.sky.horizonColor, bottom: env.sky.bottomColor };
+    this.currentSky = skyColorsAt(this.sunDir.y, day);
+  }
+
+  /**
+   * 時刻に合わせて太陽光の向き・色・明るさ、環境光の明るさ、星・月の見え方を変える。
+   * (エディタで太陽光のデータを変えると SceneBuilder が元の値に戻すので、描画の前にも呼ぶ)
+   */
+  applyTime(): void {
+    const env = this.data;
+    const root = this.lightRoot;
+    if (!env) return;
+    const timeOn = env.time.enabled;
+    const sunY = this.sunDir.y;
+    const day = timeOn ? daylight(sunY) : 1;
+    if (root && (timeOn || this.timeDriven)) {
+      const moonDir = this.sunDir.clone().negate();
+      const useMoon = timeOn && sunY < -0.02;
+      const dir = useMoon ? moonDir : this.sunDir;
+      const q = new Quaternion().setFromUnitVectors(new Vector3(0, 0, -1), dir.clone().negate());
+      const pq = new Quaternion();
+      const anchor = new Vector3();
+      root.traverse((o) => {
+        const ud = o.userData;
+        if (o instanceof DirectionalLight && ud.baseIntensity !== undefined) {
+          if (!timeOn) {
+            o.position.set(0, 0, 0);
+            o.quaternion.identity();
+            o.intensity = ud.baseIntensity;
+            o.color.set(ud.baseColor);
+            return;
+          }
+          const parent = o.parent;
+          if (!parent) return;
+          parent.updateWorldMatrix(true, false);
+          parent.getWorldQuaternion(pq);
+          o.quaternion.copy(pq.invert().multiply(q));
+          // 影の範囲がオブジェクトの周りに来るよう、光源を方向の反対側に置く
+          parent.getWorldPosition(anchor);
+          const world = anchor.clone().addScaledVector(dir, 40);
+          o.position.copy(parent.worldToLocal(world));
+          if (useMoon) {
+            o.intensity = ud.baseIntensity * 0.12 * (env.time.moon ? 1 : 0.4) * smooth01(-(sunY + 0.02) / 0.2);
+            o.color.set('#9db4ff');
+          } else {
+            o.intensity = ud.baseIntensity * day;
+            o.color.set(sunColorAt(sunY, ud.baseColor));
+          }
+        } else if ((o instanceof HemisphereLight || o instanceof AmbientLight) && ud.baseIntensity !== undefined && o !== this.flashLight) {
+          o.intensity = ud.baseIntensity * (timeOn ? 0.18 + 0.82 * day : 1);
+        }
+      });
+      this.timeDriven = timeOn;
+    }
+    // 映り込み・背景も夜は暗く
+    const physical = env.sky.type === 'physical';
+    const baseEnv = physical ? 0.12 : 1;
+    this.scene.environmentIntensity = baseEnv * (timeOn ? 0.15 + 0.85 * day : 1);
+    if (this.stars) this.stars.material.uniforms.uOpacity.value = timeOn ? nightness(sunY) : 0;
+  }
+
+  /** 時刻で変わる空の画像を作り直す (Play 中は間引く) */
+  private refreshSkyIfNeeded(force = false): void {
+    const env = this.data;
+    if (!env?.time.enabled) return;
+    this.updateSkyColors();
+    const key = this.computeSkyKey(env);
+    if (key === this.skyKey) return;
+    const interval = this.quality === 'low' ? 1.5 : this.quality === 'medium' ? 0.8 : 0.5;
+    if (!force && this.lastTime - this.lastSkyBuild < interval) return;
+    this.skyKey = key;
+    this.lastSkyBuild = this.lastTime;
+    this.rebuildSky(env);
+    if (this.scene.fog instanceof Fog) this.scene.fog.color.set(this.currentSky.horizon);
   }
 
   get hasAnimatedWeather(): boolean {
@@ -215,17 +399,21 @@ export class SceneEnvironment {
         return;
       }
       let canvas: HTMLCanvasElement;
+      const c = this.currentSky;
+      const bg = env.time.enabled ? c.horizon : env.background;
+      // 夜は太陽の光を描かない
+      const sunVisible = !env.time.enabled || this.sunDir.y > -0.05;
       if (sky.type === 'gradient') {
-        canvas = drawGradientSky(sky.topColor, sky.horizonColor, sky.bottomColor, this.sunDir, true);
+        canvas = drawGradientSky(c.top, c.horizon, c.bottom, this.sunDir, sunVisible);
       } else {
         // 単色の空: 背景は単色、映り込み用には同系色のグラデーションを使う
-        canvas = drawGradientSky(lighten(env.background, 0.12), env.background, lighten(env.background, -0.1), this.sunDir, false);
+        canvas = drawGradientSky(lighten(bg, 0.12), bg, lighten(bg, -0.1), this.sunDir, false);
       }
       const tex = new CanvasTexture(canvas);
       tex.mapping = EquirectangularReflectionMapping;
       tex.colorSpace = SRGBColorSpace;
       this.bgTexture = tex;
-      this.scene.background = sky.type === 'color' ? new Color(env.background) : tex;
+      this.scene.background = sky.type === 'color' ? new Color(bg) : tex;
       if (env.reflections) {
         this.envTarget = this.pmrem.fromEquirectangular(tex);
         this.scene.environment = this.envTarget.texture;
@@ -266,17 +454,123 @@ export class SceneEnvironment {
     sky.material.dispose();
   }
 
-  /** 毎フレームの更新 (天候の粒子をカメラに追従させる) */
+  /** 毎フレームの更新 (天候の粒子・星・月・雲をカメラに追従させる、雷) */
   update(time: number, camera: Camera): void {
+    const dt = this.lastTime ? Math.min(0.2, Math.max(0, time - this.lastTime)) : 0;
+    this.lastTime = time;
     this.weather?.update(time, camera);
+    const env = this.data;
+    if (!env) return;
+    this.refreshSkyIfNeeded();
+    const cam = camera.position;
+    if (this.stars) {
+      this.stars.position.copy(cam);
+      const u = this.stars.material.uniforms;
+      u.uTime.value = time;
+      u.uPixelRatio.value = this.renderer.getPixelRatio();
+    }
+    if (this.moon) {
+      const moonDir = this.sunDir.clone().negate();
+      this.moon.visible = moonDir.y > -0.08;
+      this.moon.position.copy(cam).addScaledVector(moonDir, 380);
+      this.moon.quaternion.copy(camera.quaternion);
+      this.moon.scale.setScalar(34);
+      this.moon.material.opacity = 0.35 + 0.65 * nightness(this.sunDir.y);
+    }
+    if (this.clouds) {
+      if (this.animate) this.cloudDrift += env.clouds.speed * dt;
+      updateClouds(this.clouds, env.clouds, env.time.enabled ? this.sunDir.y : 0.6, this.cloudDrift, camera);
+    }
+    this.updateLightning(time, dt, camera);
+  }
+
+  /** 表示用のオブジェクトを描画の前に最新にする (エディタで止まっているとき用) */
+  refresh(camera: Camera): void {
+    const keepAnimate = this.animate;
+    this.animate = false;
+    this.update(this.lastTime || 0.001, camera);
+    this.animate = keepAnimate;
+    this.applyTime();
+  }
+
+  private updateLightning(time: number, dt: number, camera: Camera): void {
+    const env = this.data!;
+    const on = this.animate && this.weatherVisible && env.weather.type === 'rain' && env.weather.lightning;
+    if (!on) {
+      if (this.flashLight) this.flashLight.intensity = 0;
+      if (this.bolt) this.bolt.visible = false;
+      this.nextStrike = 0;
+      return;
+    }
+    if (!this.flashLight) {
+      this.flashLight = new HemisphereLight(0xdde6ff, 0x404860, 0);
+      this.flashLight.name = '__lightning';
+      this.scene.add(this.flashLight);
+    }
+    if (this.nextStrike === 0) this.nextStrike = time + 2 + Math.random() * 4;
+    if (time >= this.nextStrike && this.strikeAt < 0) {
+      this.strikeAt = time;
+      this.strikes++;
+      // 雨が強いほどよく落ちる
+      this.nextStrike = time + (3 + Math.random() * 9) / (0.4 + env.weather.intensity);
+      const a = Math.random() * Math.PI * 2;
+      const dist = 25 + Math.random() * 60;
+      const ground = camera.position.clone().add(new Vector3(Math.cos(a) * dist, 0, Math.sin(a) * dist));
+      ground.y = 0;
+      this.bolt?.removeFromParent();
+      this.bolt?.geometry.dispose();
+      this.bolt?.material.dispose();
+      this.bolt = createBolt(ground.clone().add(new Vector3((Math.random() - 0.5) * 20, 90, (Math.random() - 0.5) * 20)), ground);
+      this.scene.add(this.bolt);
+      this.onLightning?.(dist);
+    }
+    if (this.strikeAt >= 0) {
+      const t = time - this.strikeAt;
+      // 2 回ちらつく光
+      const k = t < 0.08 ? 1 : t < 0.14 ? 0.25 : t < 0.24 ? 0.9 : Math.max(0, 1 - (t - 0.24) / 0.35) * 0.6;
+      this.flashLight.intensity = k * 3.2;
+      if (this.bolt) {
+        this.bolt.visible = t < 0.3;
+        this.bolt.material.opacity = t < 0.3 ? 1 - t / 0.3 : 0;
+      }
+      if (t > 0.6) {
+        this.strikeAt = -1;
+        this.flashLight.intensity = 0;
+      }
+    }
+    void dt;
+  }
+
+  /** 雷を今すぐ落とす (テスト・イベント用) */
+  strikeNow(): void {
+    this.nextStrike = this.lastTime;
   }
 
   dispose(): void {
     this.weather?.dispose();
     this.weather = null;
+    this.removeStars();
+    for (const o of [this.moon, this.clouds, this.bolt]) {
+      if (!o) continue;
+      o.removeFromParent();
+      o.geometry.dispose();
+      const m = o.material as { map?: Texture | null; dispose(): void };
+      m.map?.dispose();
+      m.dispose();
+    }
+    this.moon = null;
+    this.clouds = null;
+    this.bolt = null;
+    this.flashLight?.removeFromParent();
+    this.flashLight = null;
     this.disposeSky();
     this.pmrem.dispose();
     this.scene.fog = null;
     this.scene.environment = null;
   }
+}
+
+function smooth01(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
 }

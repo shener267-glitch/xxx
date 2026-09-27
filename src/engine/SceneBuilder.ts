@@ -295,6 +295,9 @@ function updateLight(obj: Object3D, e: EntityData): void {
   const light = obj as Light;
   light.color.set(l.color);
   light.intensity = l.intensity;
+  // 時刻 (昼夜) で明るさを変えるときの元の値
+  light.userData.baseIntensity = l.intensity;
+  light.userData.baseColor = l.color;
   if (obj instanceof HemisphereLight) obj.groundColor.set(l.groundColor);
   if (obj instanceof PointLight) {
     obj.distance = l.distance;

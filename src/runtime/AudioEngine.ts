@@ -219,6 +219,12 @@ export class AudioEngine {
         this.noiseBurst(t, 0.8, 0.6, 2400, 60, out);
         this.tone('sine', [120, 35], t, 0.6, 0.4, out);
         break;
+      case 'thunder':
+        // 雷: 近いほど鋭い「バリッ」+ 長いゴロゴロ
+        this.noiseBurst(t, 0.25, 0.5, 5000, 400, out);
+        this.noiseBurst(t + 0.05, 2.6, 0.55, 500, 40, out);
+        this.tone('sine', [70, 30], t + 0.05, 2.2, 0.3, out);
+        break;
       case 'powerup':
         seq('square', [72, 76, 79, 84, 88], 0.06, 0.1, 0.13);
         break;
@@ -248,7 +254,7 @@ export class AudioEngine {
         this.tone('sine', [660, 660], t, 0.12, 0.15, out);
     }
     // 合成用のノードは音が鳴り終わったら切り離す
-    setTimeout(() => out.disconnect(), 2000);
+    setTimeout(() => out.disconnect(), 3500);
   }
 
   private loadBuffer(assetId: string): Promise<AudioBuffer | null> {

@@ -5,7 +5,7 @@ import type { ComponentInstance, PlayerControllerHandle, RuntimeAPI } from '../c
 import { getComponentDef } from '../components/registry';
 import { logger } from '../core/logger';
 import type { PlayCameraMode, QualityLevel } from '../core/settings';
-import type { EntityData, ProjectData, SceneData, TransformData, UIButtonAction, Vec3 } from '../core/types';
+import type { EntityData, ProjectData, SceneData, TransformData, UIButtonAction, Vec3, WeatherType } from '../core/types';
 import { vec3Round } from '../core/transformMath';
 import type { EngineRenderer } from '../engine/EngineRenderer';
 import { sharedUniforms } from '../engine/materials';
@@ -164,6 +164,11 @@ export function readSave(key: string | null | undefined): SaveData | null {
 
 const _box = new Box3();
 const _groundRay = new Ray();
+
+/** 夜の時間帯 (19 時〜5 時) */
+export function isNightHour(h: number): boolean {
+  return h >= 19 || h < 5;
+}
 const _v = new Vector3();
 
 export class GameRuntime implements RuntimeAPI {
@@ -186,7 +191,7 @@ export class GameRuntime implements RuntimeAPI {
   /** 最近のゲーム内イベント (デバッグ用) */
   readonly eventLog: { event: string; entityId: string; time: number }[] = [];
   private builder: SceneBuilder;
-  private env: SceneEnvironment;
+  readonly env: SceneEnvironment;
   private components: ActiveComponent[] = [];
   private inputImpl: RuntimeInput;
   private rig!: CameraRig;
@@ -215,6 +220,8 @@ export class GameRuntime implements RuntimeAPI {
   private mixers: AnimationMixer[] = [];
   private effects: { emitter: ParticleEmitter; origin: Matrix4 }[] = [];
   private readonly qualityLevel: QualityLevel;
+  /** 今の時刻 (昼夜のサイクル) */
+  private hour = 12;
   /** ノーコードのイベント */
   readonly events: EventSystem;
 
@@ -269,7 +276,11 @@ export class GameRuntime implements RuntimeAPI {
     this.inputImpl.onKeyPress = (key) => {
       if (!this.frozen) this.events.onKey(key);
     };
+    this.env.setLightRoot(this.scene);
+    this.hour = scene.environment.time.hour;
     this.env.apply(scene.environment, findSunDirection(this.scene));
+    // 雷の音 (遠いほど小さい)
+    this.env.onLightning = (distance) => this.audio.play('builtin:thunder', Math.max(0.25, Math.min(1, 40 / distance)));
     this.setCameraMode(this.controllerCamera ?? opts.cameraMode);
     this.unsubResize = opts.engine.onResize((w, h) => this.rig?.setAspect(w / h));
     if (opts.showTitle) {
@@ -652,9 +663,20 @@ export class GameRuntime implements RuntimeAPI {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastTime) / 1000));
     this.lastTime = now;
     if (!this.paused) this.step(dt);
+    this.applyPost();
     this.opts.engine.render(this.scene, this.rig.camera);
     this.updateStats(now);
   };
+
+  /** ポストエフェクト (被写界深度はプレイヤーにピントを合わせられる) */
+  private applyPost(): void {
+    const post = this.sceneData.environment.post;
+    let focus: number | null = null;
+    if (post.dof.enabled && post.dof.autoFocus && this.playerId && this.objects.has(this.playerId)) {
+      focus = this.rig.camera.position.distanceTo(this.worldPosition(this.playerId, _v));
+    }
+    this.opts.engine.setPost(post, { focus });
+  }
 
   /** ゲームの進行が止まっている (タイトル・会話・メニュー・終了) */
   get frozen(): boolean {
@@ -699,6 +721,11 @@ export class GameRuntime implements RuntimeAPI {
     this.updateAnims(dt);
     this.updateEffects(dt);
     this.rig.update(dt, this.inputImpl);
+    // 時間を進める (昼 → 夕方 → 夜)
+    const tod = this.sceneData.environment.time;
+    if (tod.enabled && tod.cycle && !this.frozen) {
+      this.setHour(this.hour + (dt * 24) / (Math.max(0.1, tod.dayMinutes) * 60));
+    }
     sharedUniforms.uTime.value += dt;
     this.env.update(sharedUniforms.uTime.value, this.rig.camera);
     this.state.flush();
@@ -835,6 +862,9 @@ export class GameRuntime implements RuntimeAPI {
         if (on) h?.play();
         else h?.stop();
       },
+      getHour: () => rt.getHour(),
+      setHour: (hour) => rt.setHour(hour),
+      setWeather: (type, lightning) => rt.setWeather(type, lightning),
       gameClear: (msg) => rt.gameClear(msg || undefined),
       gameOver: (msg) => rt.gameOver(msg || undefined),
       log: (msg, level) => rt.report(msg, level),
@@ -1073,6 +1103,28 @@ export class GameRuntime implements RuntimeAPI {
     this.audio.play('builtin:talk', 0.5);
     await this.ui.showDialog(name, pages, () => this.audio.play('builtin:talk', 0.3));
     this.inputImpl.clearQueued();
+  }
+
+  /** 今の時刻 (0〜24) */
+  getHour(): number {
+    return this.hour;
+  }
+
+  setHour(h: number): void {
+    const prev = this.hour;
+    this.hour = ((h % 24) + 24) % 24;
+    this.env.setHour(this.hour);
+    // 夜になった・朝になったときのイベント
+    const wasNight = isNightHour(prev);
+    const night = isNightHour(this.hour);
+    if (wasNight !== night) this.emit(night ? 'night' : 'morning', '');
+  }
+
+  /** 天気を変える (Play 中だけ。保存はしない) */
+  setWeather(type: WeatherType, lightning?: boolean): void {
+    const env = this.sceneData.environment;
+    env.weather = { ...env.weather, type, lightning: lightning ?? env.weather.lightning };
+    this.env.apply(env, findSunDirection(this.scene));
   }
 
   groundHeightAt(x: number, z: number): number | null {
@@ -1360,6 +1412,7 @@ export class GameRuntime implements RuntimeAPI {
 
   dispose(): void {
     this.stop();
+    this.opts.engine.setPost(null);
     for (const c of this.components) {
       try {
         c.instance.destroy?.();

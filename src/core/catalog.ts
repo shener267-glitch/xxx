@@ -1,5 +1,8 @@
 import { getComponentDef } from '../components/registry';
 import type {
+  CloudData,
+  PostEffectsData,
+  TimeOfDayData,
   CameraData,
   ComponentData,
   EntityData,
@@ -264,8 +267,35 @@ export function defaultEnvironment(sky: 'color' | 'gradient' = 'gradient'): Envi
     fog: { enabled: false, color: '#c9dff2', near: 20, far: 120 },
     reflections: true,
     exposure: 1,
-    weather: { type: 'none', intensity: 0.6 },
+    weather: { type: 'none', intensity: 0.6, lightning: false },
+    time: defaultTimeOfDay(),
+    clouds: defaultClouds(),
+    post: defaultPostEffects(),
   };
+}
+
+export function defaultTimeOfDay(): TimeOfDayData {
+  return { enabled: false, hour: 10, cycle: false, dayMinutes: 4, sunDirection: 30, stars: true, moon: true };
+}
+
+export function defaultClouds(): CloudData {
+  return { enabled: false, amount: 0.45, speed: 2, height: 60, color: '#ffffff' };
+}
+
+export function defaultPostEffects(): PostEffectsData {
+  return {
+    bloom: { enabled: false, strength: 0.6, threshold: 0.8, radius: 0.4 },
+    dof: { enabled: false, focus: 10, blur: 0.5, autoFocus: true },
+    vignette: 0,
+    saturation: 0,
+    contrast: 0,
+    warmth: 0,
+  };
+}
+
+/** ポストエフェクトを 1 つでも使っているか */
+export function hasPostEffects(p: PostEffectsData): boolean {
+  return p.bloom.enabled || p.dof.enabled || p.vignette > 0.001 || Math.abs(p.saturation) > 0.001 || Math.abs(p.contrast) > 0.001 || Math.abs(p.warmth) > 0.001;
 }
 
 export function defaultPhysics(): PhysicsSettings {
