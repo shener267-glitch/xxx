@@ -131,12 +131,10 @@ test('バックアップ: 今すぐ・この状態に戻す (戻す前もバッ�
   // 「戻す前」のバックアップをコピーとして開く → キューブ 2 つ多い別のプロジェクト
   const projects0 = await projectCount(page);
   await menu(page, 'menu-backups');
-  const rows = page.locator('.backup-row');
-  const n = await rows.count();
-  let idx = -1;
-  for (let i = 0; i < n; i++) if ((await rows.nth(i).textContent())?.includes('戻す前')) idx = i;
-  expect(idx).toBeGreaterThanOrEqual(0);
-  await rows.nth(idx).tap();
+  // 一覧は非同期で表示されるので、「戻す前」の行が出るまで待つ
+  const row = page.locator('.backup-row').filter({ hasText: '戻す前' }).first();
+  await expect(row).toBeVisible();
+  await row.tap();
   await page.getByTestId('backup-copy').tap();
   await expect.poll(() => projectCount(page)).toBe(projects0 + 1);
   expect(await evalApp(page, (app) => app.editor.project.name)).toContain('(復元)');
