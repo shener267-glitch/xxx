@@ -84,6 +84,10 @@ export interface RuntimeOptions {
   /** もう一度・タイトルへ・エディタに戻る・シーン切り替え */
   onRequest?(kind: RuntimeRequest, sceneId?: string): void;
   onPauseChange?(paused: boolean): void;
+  /** 設定画面に足す項目 (書き出したゲーム) */
+  extraSettings?(): HTMLElement[];
+  /** タイトル画面に足すボタン (書き出したゲーム) */
+  extraTitle?(): HTMLElement[];
 }
 
 interface ActiveComponent {
@@ -223,7 +227,7 @@ export class GameRuntime implements RuntimeAPI {
   private controllers = new Map<string, unknown>();
   private mixers: AnimationMixer[] = [];
   private effects: { emitter: ParticleEmitter; origin: Matrix4 }[] = [];
-  private readonly qualityLevel: QualityLevel;
+  private qualityLevel: QualityLevel;
   /** 今の時刻 (昼夜のサイクル) */
   private hour = 12;
   /** ノーコードのイベント */
@@ -271,6 +275,8 @@ export class GameRuntime implements RuntimeAPI {
         },
         onExit: opts.standalone ? undefined : () => this.request('exit'),
       },
+      extraSettings: opts.extraSettings,
+      extraTitle: opts.extraTitle,
     });
     this.inputImpl.onPauseKey = () => {
       if (!opts.standalone || this.phase !== 'playing' || this.state.ended) return;
@@ -837,6 +843,15 @@ export class GameRuntime implements RuntimeAPI {
     });
     this.statFrames = 0;
     this.statTime = now;
+  }
+
+  /** 画質を変える (解像度・影・空はすぐに、マテリアルは次に作るものから) */
+  setQuality(q: QualityLevel): void {
+    this.qualityLevel = q;
+    this.opts.engine.setQuality(q);
+    this.opts.engine.setShadows(q !== 'low');
+    this.builder.setQuality(q);
+    this.env.setQuality(q);
   }
 
   setPaused(paused: boolean): void {

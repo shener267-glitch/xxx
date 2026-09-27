@@ -322,6 +322,12 @@ export function defaultGameSettings(title = '新しいゲーム'): GameSettings 
     showHud: true,
     clearMessage: 'ゲームクリア！',
     gameOverMessage: 'ゲームオーバー',
+    author: '',
+    version: '1.0.0',
+    description: '',
+    orientation: 'any',
+    quality: 'auto',
+    startFromTitle: true,
   };
 }
 

@@ -26,6 +26,7 @@
   "include": [
     "src",
     "tests",
-    "vite.config.ts"
+    "vite.config.ts",
+    "vite.player.config.ts"
   ]
 }

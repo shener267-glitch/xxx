@@ -134,6 +134,12 @@ function sanitizeGame(raw: unknown, name: string): GameSettings {
     showHud: bool(g.showHud, d.showHud),
     clearMessage: str(g.clearMessage, d.clearMessage).slice(0, 200),
     gameOverMessage: str(g.gameOverMessage, d.gameOverMessage).slice(0, 200),
+    author: str(g.author, d.author).slice(0, 60),
+    version: str(g.version, d.version).slice(0, 20),
+    description: str(g.description, d.description).slice(0, 300),
+    orientation: oneOf(g.orientation, ['any', 'portrait', 'landscape'] as const, d.orientation),
+    quality: oneOf(g.quality, ['auto', 'low', 'medium', 'high'] as const, d.quality),
+    startFromTitle: bool(g.startFromTitle, d.startFromTitle),
   };
 }
 

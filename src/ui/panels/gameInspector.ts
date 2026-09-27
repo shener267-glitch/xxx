@@ -1,12 +1,13 @@
 import * as A from '../../core/actions';
 import { BUILTIN_MUSIC, BUILTIN_PREFIX, BUILTIN_SFX, builtinSoundLabel, isBuiltinSound } from '../../core/sounds';
-import type { AssetEntry, EntityData, GameSettings, UIAnchor, UIButtonAction, UIElementData, Vec3 } from '../../core/types';
+import type { AssetEntry, EntityData, GameOrientation, GameSettings, UIAnchor, UIButtonAction, UIElementData, Vec3 } from '../../core/types';
 import { AudioEngine } from '../../runtime/AudioEngine';
 import { resolveAsset } from '../../engine/textures';
 import type { AppContext } from '../context';
 import { button, h } from '../dom';
 import { icon } from '../icons';
 import { actionSheet, confirmDialog, toast } from '../overlays';
+import { openGameExportModal } from '../gameExportModal';
 import { ColorField, fieldRow, NumberField, Select, Slider, TextArea, TextField, Toggle } from '../widgets';
 
 /**
@@ -342,6 +343,23 @@ export function gameSettingsSection(kit: InspectorKit): HTMLElement {
   kit.bind(() => clearMsg.set(g().clearMessage));
   const overMsg = new TextField({ title: 'ゲームオーバーのメッセージ', testId: 'gs-over-message', onChange: (v) => set({ gameOverMessage: v }, 'メッセージを変更') });
   kit.bind(() => overMsg.set(g().gameOverMessage));
+  const iconField = imageField(kit, { title: 'ゲームのアイコン', testId: 'gs-icon', get: () => g().icon, set: (v) => set({ icon: v }, 'アイコンを変更') });
+  const author = new TextField({ title: '作者', testId: 'gs-author', maxLength: 60, onChange: (v) => set({ author: v }, '作者を変更') });
+  kit.bind(() => author.set(g().author));
+  const version = new TextField({ title: 'バージョン', testId: 'gs-version', maxLength: 20, onChange: (v) => set({ version: v }, 'バージョンを変更') });
+  kit.bind(() => version.set(g().version));
+  const orientation = new Select<GameOrientation>({
+    options: [
+      { value: 'any', label: '自由 (回転に合わせる)' },
+      { value: 'portrait', label: '縦向き' },
+      { value: 'landscape', label: '横向き' },
+    ],
+    title: '画面の向き',
+    testId: 'gs-orientation',
+    onChange: (v) => set({ orientation: v }, '画面の向きを変更'),
+  });
+  kit.bind(() => orientation.set(g().orientation));
+  const exportBtn = button({ icon: 'gamepad', label: 'ゲームを書き出す…', class: 'primary small', testId: 'gs-export', onClick: () => openGameExportModal(kit.ctx) });
   const fromTitle = new Toggle({ title: 'タイトル画面から Play', testId: 'play-from-title', onChange: (v) => ed.updateSettings({ playFromTitle: v }) });
   kit.bind(() => fromTitle.set(ed.settings.playFromTitle));
   const clearSave = button({
@@ -376,7 +394,11 @@ export function gameSettingsSection(kit: InspectorKit): HTMLElement {
       fieldRow('クリアの文字', clearMsg.el),
       fieldRow('ゲームオーバーの文字', overMsg.el),
       fieldRow('タイトルから Play', fromTitle.el, { hint: 'Play でタイトル画面を表示' }),
-      h('div', { class: 'button-row' }, clearSave),
+      fieldRow('アイコン', iconField, { hint: '書き出したゲーム' }),
+      fieldRow('作者', author.el),
+      fieldRow('バージョン', version.el),
+      fieldRow('画面の向き', orientation.el, { hint: '書き出したゲーム' }),
+      h('div', { class: 'button-row' }, clearSave, exportBtn),
     ],
     { collapsed: true, testId: 'sec-game' },
   );

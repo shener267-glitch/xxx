@@ -2153,3 +2153,99 @@ body.dragging-asset .app .sheet {
   background: var(--accent-bg);
   color: var(--accent-2);
 }
+
+/* ゲームを書き出す (Phase 10) */
+.ge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ge-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.ge-icon {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  font-weight: 900;
+  color: #fff;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.ge-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ge-name {
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ge-sub {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.ge-seg {
+  width: 100%;
+}
+.ge-seg .seg-btn {
+  flex: 1;
+}
+.ge-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.ge-actions .btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  justify-content: center;
+  white-space: normal;
+  line-height: 1.25;
+}
+.ge-actions .btn:first-child {
+  grid-column: 1 / -1;
+}
+.ge-size {
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+.ge-help {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.ge-help b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.ge-help ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.ge-help p {
+  margin: 0;
+}

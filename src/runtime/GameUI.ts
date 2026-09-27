@@ -40,6 +40,10 @@ export interface GameUIOptions {
   volumes: AudioVolumes;
   resolveImage(assetId: string): Promise<string | null>;
   handlers: GameUIHandlers;
+  /** 設定画面に足す項目 (書き出したゲームの画質・全画面など) */
+  extraSettings?(): HTMLElement[];
+  /** タイトル画面に足すボタン (書き出したゲームの「全画面で遊ぶ」など) */
+  extraTitle?(): HTMLElement[];
 }
 
 export interface UIItem {
@@ -543,6 +547,9 @@ export class GameUI {
     );
     if (hasSave) content.push(this.btn('つづきから', 'game-continue', () => this.opts.handlers.onStart(true)));
     content.push(this.btn('設定', 'game-open-settings', () => this.showSettings(() => this.showTitle(hasSave))));
+    if (this.opts.extraTitle) content.push(...this.opts.extraTitle());
+    const credit = [g.author ? `作: ${g.author}` : '', g.version ? `v${g.version}` : ''].filter(Boolean).join(' ・ ');
+    if (this.opts.standalone && credit) content.push(h('p', { class: 'g-credit', text: credit, attrs: { 'data-testid': 'game-credit' } }));
     const bg = `radial-gradient(circle at 50% 30%, ${hexToRgba(g.titleBackground, 0.85)}, ${hexToRgba(g.titleBackground, 1)})`;
     this.openScreen('g-title-screen', 'game-title', content, bg);
   }
@@ -589,6 +596,7 @@ export class GameUI {
       slider('全体の音量', 'master'),
       slider('音楽', 'music'),
       slider('効果音', 'sfx'),
+      ...(this.opts.extraSettings?.() ?? []),
       h(
         'div',
         { class: 'g-help' },

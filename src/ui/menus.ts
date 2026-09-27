@@ -11,6 +11,8 @@ import type { ActionItem } from './overlays';
 import { groundUnder, makePrefab, openMassPlace } from './assetDialogs';
 import { exportProjectZip, importProjectsFromFile, openBackupsModal } from './dataManager';
 import { openScenesModal } from './sceneManager';
+import { openGameExportModal, previewGame } from './gameExportModal';
+import { setFullscreen } from '../runtime/fullscreen';
 import { clone } from '../core/util';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
@@ -346,6 +348,20 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
+    { label: 'ゲームを書き出す…', icon: 'gamepad', onSelect: () => openGameExportModal(ctx), testId: 'menu-export-game', hint: 'ZIP / HTML ・ GitHub Pages' },
+    {
+      label: '全画面でテストプレイ',
+      icon: 'fullscreen',
+      testId: 'menu-play-fullscreen',
+      hint: 'タイトル画面から',
+      onSelect: () => {
+        // 全画面はタップの直後にしか始められないため、先に全画面にしてから Play する
+        void setFullscreen(true);
+        ctx.play.play({ showTitle: true });
+      },
+    },
+    { label: '書き出したゲームを新しいタブで遊ぶ', icon: 'play', onSelect: () => void previewGame(ctx), testId: 'menu-preview-game' },
+    'separator',
     { label: 'プロジェクトを書き出し (.pocket.zip)', icon: 'download', onSelect: () => void exportProjectZip(ctx), testId: 'menu-export-zip', hint: 'アセットも含む' },
     { label: 'プロジェクトを書き出し (.json)', icon: 'download', onSelect: () => p.exportProject(), testId: 'menu-export' },
     { label: 'プロジェクトを読み込み (.zip / .json)', icon: 'upload', onSelect: () => void importProjectsFromFile(ctx), testId: 'menu-import' },
@@ -369,7 +385,7 @@ export function showAbout(): void {
     content: h(
       'div',
       { class: 'about' },
-      h('p', { html: '<b>Pocket Engine</b> v0.1 (Phase 1)' }),
+      h('p', { html: '<b>Pocket Engine</b> v1.0' }),
       h('p', { text: 'スマートフォンのブラウザだけで 3D ゲームを作って遊べるゲームエンジンです。データはすべてこの端末のブラウザ内に保存され、外部サーバーには送信されません。' }),
       h('p', { class: 'muted', text: '描画: Three.js (WebGL)' }),
     ),
