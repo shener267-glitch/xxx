@@ -9,6 +9,7 @@ import { EngineRenderer } from '../engine/EngineRenderer';
 import { setAssetResolver } from '../engine/textures';
 import { h } from '../ui/dom';
 import { StandalonePlayer } from './StandalonePlayer';
+import { preventPageZoom } from '../runtime/pageZoom';
 
 /**
  * 書き出したゲームのエントリーポイント (pocket-player.js)。
@@ -50,6 +51,7 @@ function installAssets(game: ExportedGame): void {
 
 function boot(): void {
   injectCss();
+  preventPageZoom();
   const root = document.getElementById('game') ?? document.body.appendChild(document.createElement('div'));
   const raw = (window as unknown as Record<string, unknown>)[GAME_GLOBAL] as ExportedGame | undefined;
   if (!raw || raw.format !== GAME_FORMAT || !raw.project) {

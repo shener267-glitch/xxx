@@ -181,13 +181,33 @@ export async function enterNumber(page: Page, testId: string, value: string): Pr
   await expect(page.getByTestId('numpad')).toHaveCount(0);
 }
 
-/** アニメーションが終わって位置が安定するまで待ってから要素の矩形を返す */
+/**
+ * アニメーションが終わって位置が安定するまで待ってから要素の矩形を返す。
+ * ボトムシートは高さのアニメーションが終わる (見た目の高さ = 指定した高さ) まで待つ
+ * (GPU の無い環境では描画が重くフレームが間引かれ、途中で止まって見えることがあるため)
+ */
 export async function stableBox(page: Page, testId: string): Promise<{ x: number; y: number; width: number; height: number }> {
+  await page
+    .waitForFunction(
+      () => {
+        const s = document.querySelector<HTMLElement>('[data-testid="sheet"]');
+        if (!s || !s.style.height) return true;
+        return Math.abs(parseFloat(getComputedStyle(s).height) - parseFloat(s.style.height)) < 0.5;
+      },
+      undefined,
+      { timeout: 5000 },
+    )
+    .catch(() => undefined);
   let prev = await page.getByTestId(testId).boundingBox();
+  let same = 0;
   for (let i = 0; i < 40; i++) {
     await page.waitForTimeout(60);
     const cur = await page.getByTestId(testId).boundingBox();
-    if (prev && cur && Math.abs(prev.y - cur.y) < 0.5 && Math.abs(prev.height - cur.height) < 0.5) return cur;
+    if (prev && cur && Math.abs(prev.y - cur.y) < 0.5 && Math.abs(prev.height - cur.height) < 0.5) {
+      if (++same >= 2) return cur;
+    } else {
+      same = 0;
+    }
     prev = cur;
   }
   return prev!;
@@ -277,12 +297,24 @@ export async function closeSheet(page: Page): Promise<void> {
 }
 
 /**
+ * 3D ビューの視点が落ち着くまで待つ。
+ * シートを開閉すると、覆われていない範囲に合わせて 3D ビューの中心がなめらかに動くため、
+ * 画面上の位置を求めてタップする前に呼ぶ
+ */
+export async function waitViewSettled(page: Page): Promise<void> {
+  await stableBox(page, 'sheet');
+  await expect
+    .poll(() => evalApp(page, (app) => !app.viewport.camera.insetsAnimating && !app.viewport.camera.animating), { timeout: 5000 })
+    .toBe(true);
+}
+
+/**
  * シートが閉じ終わるまで待つ。data-state はすぐに変わるが、下へ動くアニメーションの途中で
  * 3D ビューをタップするとシートに当たってしまうため、位置が止まるまで待つ
  */
 export async function waitSheetClosed(page: Page): Promise<void> {
   await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
-  await stableBox(page, 'sheet');
+  await waitViewSettled(page);
 }
 
 export const gameState = (page: Page) =>

@@ -140,7 +140,8 @@ describe('ゲーム用オブジェクト', () => {
   it('カタログのゲーム用オブジェクトは既定値の入ったコンポーネントを持つ', () => {
     for (const item of CATALOG.filter((c) => c.category === 'game')) {
       const e = createEntity(item.kind);
-      expect(e.components.length).toBeGreaterThan(0);
+      // ドアはイベント (ひな形) で動かすただの物
+      if (item.kind !== 'game-door') expect(e.components.length, item.kind).toBeGreaterThan(0);
       for (const c of e.components) {
         const def = getComponentDef(c.type);
         expect(def, c.type).toBeTruthy();

@@ -30,10 +30,10 @@ export function registerPhysicsComponents(): void {
         ],
       },
       { key: 'mass', label: '重さ', type: 'number', min: 0.01, step: 0.1, unit: 'kg' },
-      { key: 'friction', label: '摩擦', type: 'number', min: 0, max: 2, step: 0.05 },
-      { key: 'bounciness', label: '跳ね返り', type: 'number', min: 0, max: 1, step: 0.05 },
-      { key: 'linearDamping', label: '空気抵抗', type: 'number', min: 0, max: 1, step: 0.05 },
-      { key: 'lockRotation', label: '回転しない', type: 'boolean' },
+      { key: 'friction', label: '摩擦', type: 'number', min: 0, max: 2, step: 0.05, advanced: true },
+      { key: 'bounciness', label: '跳ね返り', type: 'number', min: 0, max: 1, step: 0.05, advanced: true },
+      { key: 'linearDamping', label: '空気抵抗', type: 'number', min: 0, max: 1, step: 0.05, advanced: true },
+      { key: 'lockRotation', label: '回転しない', type: 'boolean', advanced: true },
       { key: 'useGravity', label: '重力を受ける', type: 'boolean' },
     ],
   });
@@ -59,8 +59,8 @@ export function registerPhysicsComponents(): void {
         ],
       },
       { key: 'trigger', label: 'すり抜け (トリガー)', type: 'boolean' },
-      { key: 'size', label: '大きさ (倍率)', type: 'vec3', step: 0.1 },
-      { key: 'offset', label: '中心のずれ', type: 'vec3', step: 0.1 },
+      { key: 'size', label: '大きさ (倍率)', type: 'vec3', step: 0.1, advanced: true },
+      { key: 'offset', label: '中心のずれ', type: 'vec3', step: 0.1, advanced: true },
     ],
   });
 }

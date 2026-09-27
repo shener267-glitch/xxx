@@ -27,6 +27,7 @@ import { computeColliderShape, hasPhysics, readCollider } from './colliderShapes
 import { findSunDirection, SceneEnvironment } from './SceneEnvironment';
 import { onTextureLoaded } from './textures';
 import { EditorCamera } from './EditorCamera';
+import type { ViewInsets } from './EditorCamera';
 import type { EngineRenderer } from './EngineRenderer';
 import { GizmoController } from './GizmoController';
 import { Grid } from './Grid';
@@ -92,6 +93,7 @@ export class EditorViewport {
     this.env.weatherVisible = editor.settings.previewEffects;
     this.env.animate = editor.settings.previewEffects;
     this.camera = new EditorCamera(engine.width / engine.height);
+    this.camera.setViewport(engine.width, engine.height);
     this.camera.onChange = () => this.requestRender();
 
     this.scene.add(this.grid);
@@ -117,9 +119,9 @@ export class EditorViewport {
     // 「このカメラから見る」中は、タップやカメラ操作でふだんの視点に戻る
     const wrapped: ViewportInputHandlers = {
       ...handlers,
-      onTap: (x, y, additive) => {
+      onTap: (x, y, additive, touch) => {
         if (this.previewCameraId) this.setPreviewCamera(null);
-        else handlers.onTap(x, y, additive);
+        else handlers.onTap(x, y, additive, touch);
       },
       onGesture: (active) => {
         if (active && this.previewCameraId) this.setPreviewCamera(null);
@@ -149,7 +151,7 @@ export class EditorViewport {
 
     this.unsubs.push(
       engine.onResize((w, h) => {
-        this.camera.setAspect(w / h);
+        this.camera.setViewport(w, h);
         this.effects?.setViewportHeight(h);
         this.requestRender();
       }),
@@ -164,6 +166,8 @@ export class EditorViewport {
       ev.on('environment-changed', () => this.applyEnvironment()),
       ev.on('settings-changed', () => this.applySettings()),
       ev.on('focus-request', (ids) => this.focus(ids)),
+      // 一覧などで選んだ物が見えていなければ、見える所へカメラを動かす
+      ev.on('selection-changed', () => this.scheduleReveal()),
       // 太陽光の向きが変わったら空と映り込みを更新する (ドラッグ中は間引く)
       ev.on('entity-changed', (c) => {
         if (editor.scene.get(c.id)?.light?.type === 'directional') this.scheduleEnvironment();
@@ -184,7 +188,7 @@ export class EditorViewport {
       onTextureLoaded(() => this.requestRender()),
       engine.onPostReady(() => this.requestRender()),
     );
-    this.camera.setAspect(engine.width / engine.height);
+    this.camera.setViewport(engine.width, engine.height);
     this.onSceneLoaded();
     this.applySettings();
     this.raf = requestAnimationFrame(this.loop);
@@ -240,10 +244,37 @@ export class EditorViewport {
     return () => this.listeners.delete(fn);
   }
 
+  /**
+   * 画面の右・下がパネルで覆われている量 (px)。
+   * 覆われていない範囲の中央を 3D ビューの中心にする (選んだ物がパネルに隠れないように)
+   */
+  setInsets(insets: ViewInsets, animate = true): void {
+    const wasAnimating = this.camera.insetsAnimating;
+    this.camera.setInsets(insets, animate);
+    if (!animate) {
+      this.gizmo.setSizeScale(this.camera.screenScale);
+      this.scheduleReveal();
+    } else if (!wasAnimating && this.camera.insetsAnimating) {
+      this.revealAfterInsets = true;
+    }
+    this.requestRender();
+  }
+
+  private revealAfterInsets = false;
+
   private loop = (now: number) => {
     this.raf = requestAnimationFrame(this.loop);
     if (!this.running) return;
-    if (this.camera.tick(now)) this.needsRender = true;
+    const insetsBefore = this.camera.insetsAnimating;
+    if (this.camera.tick(now)) {
+      this.needsRender = true;
+      this.gizmo.setSizeScale(this.camera.screenScale);
+    }
+    // パネルが開き終わったら、選んだ物が隠れていれば見える所へ動かす
+    if (insetsBefore && !this.camera.insetsAnimating && this.revealAfterInsets) {
+      this.revealAfterInsets = false;
+      this.revealSelection();
+    }
     const dt = this.lastFrame ? Math.min(0.1, (now - this.lastFrame) / 1000) : 0;
     this.lastFrame = now;
     // パーティクル: 選択中のもの (プレビュー ON ならすべて) を動かす
@@ -326,7 +357,7 @@ export class EditorViewport {
   resume(): void {
     this.running = true;
     this.input.enabled = true;
-    this.camera.setAspect(this.engine.width / this.engine.height);
+    this.camera.setViewport(this.engine.width, this.engine.height);
     // Play 中に変わったレンダラーの設定 (露出など) を戻す
     this.applyEnvironment();
     this.requestRender();
@@ -484,15 +515,103 @@ export class EditorViewport {
     return this.raycaster;
   }
 
-  /** 画面座標にあるエンティティの ID */
-  pick(clientX: number, clientY: number): string | null {
+  /**
+   * 画面座標にあるエンティティの ID。
+   * tolerance (px) を指定すると、指の真下に無くても近くにある物を選ぶ (小さい物をタップしやすくする)
+   */
+  pick(clientX: number, clientY: number, tolerance = 0): string | null {
+    return this.pickAll(clientX, clientY, tolerance)[0] ?? null;
+  }
+
+  /** 画面座標にあるエンティティの ID を手前から順に (重なっている物もすべて) */
+  pickAll(clientX: number, clientY: number, tolerance = 0): string[] {
+    const ids = this.pickRay(clientX, clientY);
+    if (ids.length > 0 || tolerance <= 0) return ids;
+    // 周りを円状に調べ、指に近い所で見つかった物から順に並べる
+    const found: string[] = [];
+    for (const r of [tolerance * 0.5, tolerance]) {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + (r === tolerance ? Math.PI / 8 : 0);
+        for (const id of this.pickRay(clientX + Math.cos(a) * r, clientY + Math.sin(a) * r)) {
+          if (!found.includes(id)) found.push(id);
+        }
+      }
+      if (found.length > 0) break;
+    }
+    return found;
+  }
+
+  private pickRay(clientX: number, clientY: number): string[] {
     const ray = this.setRay(clientX, clientY);
     const hits = ray.intersectObjects(this.bridge.pickables(), false);
+    const ids: string[] = [];
     for (const h of hits) {
       const eo = findEntityObject(h.object);
-      if (eo) return eo.userData.entityId;
+      const id = eo?.userData.entityId as string | undefined;
+      if (id && !ids.includes(id)) ids.push(id);
     }
-    return null;
+    return ids;
+  }
+
+  /** 覆われていない範囲 (画面座標) */
+  visibleClientRect(): { left: number; top: number; right: number; bottom: number } {
+    const r = this.element.getBoundingClientRect();
+    const v = this.camera.visibleRect();
+    return { left: r.left + v.x, top: r.top + v.y, right: r.left + v.x + v.width, bottom: r.top + v.y + v.height };
+  }
+
+  /** 選択中の物の画面上の範囲 (カメラの後ろなら null) */
+  private screenBounds(id: string): { left: number; top: number; right: number; bottom: number } | null {
+    const obj = this.bridge.get(id);
+    if (!obj) return null;
+    const box = this.computeBounds(obj, new Box3());
+    if (box.isEmpty()) box.setFromCenterAndSize(new Vector3().setFromMatrixPosition(obj.matrixWorld), new Vector3(0.2, 0.2, 0.2));
+    const r = this.element.getBoundingClientRect();
+    const cam = this.camera.camera;
+    cam.updateMatrixWorld();
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    let front = 0;
+    const p = new Vector3();
+    for (let i = 0; i < 8; i++) {
+      p.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+      p.project(cam);
+      if (p.z > 1) continue;
+      front++;
+      const x = r.left + ((p.x + 1) / 2) * r.width;
+      const y = r.top + ((1 - p.y) / 2) * r.height;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+    return front > 0 ? { left, top, right, bottom } : null;
+  }
+
+  /** 選んだ物が見えていなければ (パネルの下・画面の外) 見える所へカメラを動かす */
+  revealSelection(): void {
+    const id = this.editor.selection.active;
+    const e = id ? this.editor.scene.get(id) : undefined;
+    if (!id || !e || e.kind === 'ui' || this.editor.mode !== 'edit') return;
+    const vis = this.visibleClientRect();
+    const b = this.screenBounds(id);
+    // 少しでも見えていれば動かさない (タップで選んだ物の位置が急に変わらないように)
+    const margin = 12;
+    if (b && b.right > vis.left + margin && b.left < vis.right - margin && b.bottom > vis.top + margin && b.top < vis.bottom - margin) return;
+    const obj = this.bridge.get(id);
+    if (!obj) return;
+    const box = this.computeBounds(obj, new Box3());
+    const center = box.isEmpty() ? new Vector3().setFromMatrixPosition(obj.matrixWorld) : box.getCenter(new Vector3());
+    this.camera.revealPoint(center);
+  }
+
+  private revealTimer = 0;
+
+  private scheduleReveal(): void {
+    cancelAnimationFrame(this.revealTimer);
+    this.revealTimer = requestAnimationFrame(() => this.revealSelection());
   }
 
   /** 光線と表示中の地形の、いちばん手前の交点 */
@@ -627,7 +746,7 @@ export class EditorViewport {
         hidden.push(o);
       }
     }
-    const url = this.engine.captureThumbnail(() => this.engine.render(this.scene, this.camera.camera));
+    const url = this.camera.withoutInsets(() => this.engine.captureThumbnail(() => this.engine.render(this.scene, this.camera.camera)));
     for (const o of hidden) o.visible = true;
     this.requestRender();
     return url;
@@ -635,6 +754,7 @@ export class EditorViewport {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.revealTimer);
     this.scheduleEnvironment.cancel();
     this.env.dispose();
     this.unsubs.forEach((u) => u());

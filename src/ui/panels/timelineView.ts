@@ -114,7 +114,8 @@ export class TimelineView {
     );
   }
 
-  private open(id: string): void {
+  /** 指定したタイムラインの編集画面を開く */
+  open(id: string): void {
     this.openId = id;
     this.time = 0;
     this.rerender();

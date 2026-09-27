@@ -52,9 +52,10 @@ export interface ViewportTool {
 }
 
 export interface ViewportInputHandlers {
-  onTap(clientX: number, clientY: number, additive: boolean): void;
-  onDoubleTap(clientX: number, clientY: number): void;
-  onLongPress(clientX: number, clientY: number): void;
+  /** touch: 指 (ペン) での操作か (マウスなら false) */
+  onTap(clientX: number, clientY: number, additive: boolean, touch: boolean): void;
+  onDoubleTap(clientX: number, clientY: number, touch: boolean): void;
+  onLongPress(clientX: number, clientY: number, touch: boolean): void;
   /** ジェスチャー開始・終了 (UI のヒント表示用) */
   onGesture?(active: boolean): void;
 }
@@ -62,6 +63,13 @@ export interface ViewportInputHandlers {
 const TAP_SLOP_TOUCH = 10;
 const TAP_SLOP_MOUSE = 4;
 const LONG_PRESS_MS = 550;
+/**
+ * 2本指の操作は、はっきり動かしたものだけを反映する (ピンチ中の小さなひねりで視点が回らないように)。
+ * ズーム: 指の間隔が 6% 以上変わった / ひねり: 15° 以上回した / 平行移動: 中点が 10px 以上動いた
+ */
+const PINCH_START = 0.06;
+const TWIST_START = 0.26;
+const PAN_START = 10;
 
 export class ViewportInput {
   enabled = true;
@@ -72,7 +80,16 @@ export class ViewportInput {
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
   private longPressFrame = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
-  private multi = { dist: 0, midX: 0, midY: 0, angle: 0 };
+  private multi = {
+    dist: 0,
+    midX: 0,
+    midY: 0,
+    angle: 0,
+    start: { dist: 0, midX: 0, midY: 0, angle: 0 },
+    zoom: false,
+    twist: false,
+    pan: false,
+  };
   private drag: ObjectDrag | null = null;
   private raycaster = new Raycaster();
   private disposers: (() => void)[] = [];
@@ -171,7 +188,7 @@ export class ViewportInput {
             this.longPressFrame = 0;
             if (this.mode === 'pending' && this.pointers.size === 1 && this.pointers.get(p.id) === p) {
               this.setMode('blocked');
-              this.handlers.onLongPress(p.x, p.y);
+              this.handlers.onLongPress(p.x, p.y, true);
             }
           });
         }, LONG_PRESS_MS);
@@ -263,7 +280,7 @@ export class ViewportInput {
       case 'pending':
         if (this.pointers.size === 0 && !cancelled) {
           if (p.type === 'mouse' && p.button === 2) {
-            this.handlers.onLongPress(p.x, p.y);
+            this.handlers.onLongPress(p.x, p.y, false);
           } else if (p.type !== 'mouse' || p.button === 0) {
             this.handleTap(p, e);
           }
@@ -304,8 +321,9 @@ export class ViewportInput {
     const isDouble = now - this.lastTap.t < 320 && Math.hypot(p.x - this.lastTap.x, p.y - this.lastTap.y) < 30;
     this.lastTap = { t: isDouble ? 0 : now, x: p.x, y: p.y };
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-    if (isDouble) this.handlers.onDoubleTap(p.x, p.y);
-    else this.handlers.onTap(p.x, p.y, additive);
+    const touch = p.type !== 'mouse';
+    if (isDouble) this.handlers.onDoubleTap(p.x, p.y, touch);
+    else this.handlers.onTap(p.x, p.y, additive, touch);
   }
 
   private onWheel(e: WheelEvent): void {
@@ -339,12 +357,13 @@ export class ViewportInput {
     const pair = this.twoPointers();
     if (!pair) return;
     const [a, b] = pair;
-    this.multi = {
+    const now = {
       dist: Math.hypot(b.x - a.x, b.y - a.y),
       midX: (a.x + b.x) / 2,
       midY: (a.y + b.y) / 2,
       angle: Math.atan2(b.y - a.y, b.x - a.x),
     };
+    this.multi = { ...now, start: { ...now }, zoom: false, twist: false, pan: false };
   }
 
   private updateMulti(): void {
@@ -356,14 +375,20 @@ export class ViewportInput {
     const midY = (a.y + b.y) / 2;
     const angle = Math.atan2(b.y - a.y, b.x - a.x);
     const m = this.multi;
-    if (m.dist > 10 && dist > 10) this.camera.zoom(m.dist / dist);
-    this.camera.pan(midX - m.midX, midY - m.midY, this.el.clientHeight);
-    let dAngle = angle - m.angle;
-    if (dAngle > Math.PI) dAngle -= Math.PI * 2;
-    if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+    const wrap = (v: number) => (v > Math.PI ? v - Math.PI * 2 : v < -Math.PI ? v + Math.PI * 2 : v);
+    // どの操作をしているか (一度はっきり動かしたら、指を離すまで有効)
+    if (!m.zoom && m.start.dist > 10 && dist > 10 && Math.abs(Math.log(dist / m.start.dist)) > PINCH_START) m.zoom = true;
+    if (!m.twist && Math.abs(wrap(angle - m.start.angle)) > TWIST_START) m.twist = true;
+    if (!m.pan && Math.hypot(midX - m.start.midX, midY - m.start.midY) > PAN_START) m.pan = true;
+    if (m.zoom && m.dist > 10 && dist > 10) this.camera.zoom(m.dist / dist);
+    if (m.pan) this.camera.pan(midX - m.midX, midY - m.midY, this.el.clientHeight);
+    const dAngle = wrap(angle - m.angle);
     // ひねり: 水平回転 (指の入れ替わりなどによる急な角度の飛びは無視)
-    if (Math.abs(dAngle) < 0.3) this.camera.orbit((-dAngle * 180) / Math.PI / 0.35, 0);
-    this.multi = { dist, midX, midY, angle };
+    if (m.twist && Math.abs(dAngle) < 0.3) this.camera.orbit((-dAngle * 180) / Math.PI / 0.35, 0);
+    m.dist = dist;
+    m.midX = midX;
+    m.midY = midY;
+    m.angle = angle;
   }
 
   // ------------------------------------------------------------------

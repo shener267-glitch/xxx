@@ -1,9 +1,12 @@
+import { checkProject, countProblems } from '../core/diagnostics';
+import type { Issue, IssueLevel } from '../core/diagnostics';
 import { logger } from '../core/logger';
 import type { LogEntry, LogLevel } from '../core/logger';
 import { jsHeapMB, perfMonitor } from '../engine/PerfMonitor';
 import type { AppContext } from './context';
 import { button, h, rafThrottle } from './dom';
 import { icon } from './icons';
+import { addFromCatalog } from './menus';
 import { toast } from './overlays';
 
 /**
@@ -12,11 +15,12 @@ import { toast } from './overlays';
  * スマホでは画面の下半分、PC では右側に出る。
  */
 
-export type ConsoleTab = 'log' | 'perf' | 'tools';
+export type ConsoleTab = 'log' | 'check' | 'perf' | 'tools';
 type LevelFilter = 'all' | LogLevel;
 
 const LEVEL_LABEL: Record<LogLevel, string> = { info: '情報', warn: '警告', error: 'エラー' };
 const LEVEL_ICON: Record<LogLevel, string> = { info: 'info', warn: 'alert', error: 'alert' };
+const ISSUE_LABEL: Record<IssueLevel, string> = { error: 'エラー', warn: '注意', info: 'お知らせ' };
 
 function clock(t: number): string {
   const d = new Date(t);
@@ -64,6 +68,9 @@ export class DebugConsole {
       if (this.opened) this.schedule();
     });
     ctx.editor.events.on('mode-changed', () => this.opened && this.schedule());
+    for (const type of ['history-changed', 'scene-loaded', 'assets-changed'] as const) {
+      ctx.editor.events.on(type, () => this.opened && this.tab === 'check' && this.schedule());
+    }
   }
 
   get isOpen(): boolean {
@@ -111,14 +118,17 @@ export class DebugConsole {
     if (!this.opened) return;
     const tabs: [ConsoleTab, string][] = [
       ['log', 'ログ'],
+      ['check', 'チェック'],
       ['perf', '性能'],
       ['tools', '道具'],
     ];
+    const problems = countProblems(checkProject(this.ctx.editor.project));
+    const dot = (id: ConsoleTab) => (id === 'log' && logger.entries.some((e) => e.level === 'error')) || (id === 'check' && problems.errors + problems.warnings > 0);
     this.tabsEl.replaceChildren(
       ...tabs.map(([id, label]) =>
         h('button', {
           class: `console-tab${this.tab === id ? ' active' : ''}`,
-          text: id === 'log' && logger.entries.some((e) => e.level === 'error') ? `${label} ●` : label,
+          text: dot(id) ? `${label} ●` : label,
           attrs: { type: 'button', role: 'tab', 'aria-selected': String(this.tab === id), 'data-testid': `console-tab-${id}` },
           on: {
             click: () => {
@@ -134,8 +144,102 @@ export class DebugConsole {
       this.releasePerf = null;
     }
     if (this.tab === 'log') this.renderLog();
+    else if (this.tab === 'check') this.renderCheck();
     else if (this.tab === 'perf') this.renderPerf();
     else this.renderTools();
+  }
+
+  // ---- チェック (ゲームが思った通りに動かない原因になりやすい設定) ----
+
+  private renderCheck(): void {
+    const ed = this.ctx.editor;
+    const issues = checkProject(ed.project);
+    const c = countProblems(issues);
+    const summary =
+      issues.length === 0
+        ? h('div', { class: 'check-ok', attrs: { 'data-testid': 'check-ok' } }, h('span', { html: icon('check', 20) }), h('span', { text: '問題は見つかりませんでした。Play で遊んでみましょう！' }))
+        : h('div', { class: 'check-summary', attrs: { 'data-testid': 'check-summary' } }, `エラー ${c.errors} ・ 注意 ${c.warnings} ・ お知らせ ${c.infos}`);
+    const list = h(
+      'div',
+      { class: 'check-list', attrs: { 'data-testid': 'check-list' } },
+      issues.map((i) => this.issueRow(i)),
+    );
+    this.body.replaceChildren(
+      summary,
+      list,
+      h('p', { class: 'field-note', text: 'すべてのシーンを調べています。「エラー」は直さないとその部分が動きません。「注意」は思った通りに動かない原因になりやすい設定です。' }),
+    );
+  }
+
+  private issueRow(issue: Issue): HTMLElement {
+    const ctx = this.ctx;
+    const ed = ctx.editor;
+    const openScene = () => {
+      if (ctx.play.playing) ctx.play.stop();
+      if (ed.sceneData.id !== issue.sceneId) ed.setActiveScene(issue.sceneId);
+    };
+    const actions: HTMLElement[] = [];
+    if (issue.entityId) {
+      actions.push(
+        button({
+          icon: 'target',
+          label: '選ぶ',
+          class: 'secondary small',
+          testId: 'issue-select',
+          onClick: () => {
+            openScene();
+            if (!ed.scene.get(issue.entityId!)) return;
+            ed.select(issue.entityId!);
+            this.hide();
+            ctx.openTab('inspector', 'half');
+          },
+        }),
+      );
+    }
+    if (issue.ruleId || issue.timelineId) {
+      actions.push(
+        button({
+          icon: 'zap',
+          label: issue.ruleId ? 'イベントを開く' : 'タイムラインを開く',
+          class: 'secondary small',
+          testId: 'issue-open-event',
+          onClick: () => {
+            openScene();
+            this.hide();
+            ctx.showRule(issue.ruleId ?? null, issue.timelineId);
+          },
+        }),
+      );
+    }
+    if (issue.fix) {
+      const fix = issue.fix;
+      actions.push(
+        button({
+          icon: 'check',
+          label: fix.label,
+          class: 'primary small',
+          testId: `issue-fix-${fix.kind}`,
+          onClick: () => {
+            openScene();
+            if (addFromCatalog(ctx, fix.kind === 'add-player' ? 'game-player' : 'light-directional')) this.render();
+          },
+        }),
+      );
+    }
+    const other = issue.sceneId !== ed.sceneData.id ? h('span', { class: 'issue-scene', text: `シーン「${issue.sceneName}」` }) : null;
+    return h(
+      'div',
+      { class: `issue lv-${issue.level}`, attrs: { 'data-testid': 'issue', 'data-level': issue.level } },
+      h(
+        'div',
+        { class: 'issue-head' },
+        h('span', { class: 'issue-badge', text: ISSUE_LABEL[issue.level] }),
+        h('b', { class: 'issue-title', text: issue.title }),
+      ),
+      other,
+      h('p', { class: 'issue-detail', text: issue.detail }),
+      actions.length ? h('div', { class: 'button-row' }, actions) : null,
+    );
   }
 
   // ---- ログ ----
@@ -235,6 +339,7 @@ export class DebugConsole {
         h('span', { class: 'log-msg', text: e.message }),
       ),
       e.source ? h('div', { class: 'log-source', text: `場所: ${e.source}` }) : null,
+      e.hint ? h('div', { class: 'log-hint', attrs: { 'data-testid': 'log-hint' } }, h('b', { text: 'どうすれば直る？ ' }), e.hint) : null,
     );
     if (open) {
       if (e.detail) el.appendChild(h('pre', { class: 'log-detail', text: e.detail }));

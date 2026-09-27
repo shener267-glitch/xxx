@@ -1,6 +1,6 @@
 import * as A from '../../core/actions';
 import { searchEntities } from '../../core/search';
-import { entityIcon } from '../../core/catalog';
+import { entityIcon, entityRole } from '../../core/catalog';
 import type { EntityData } from '../../core/types';
 import type { AppContext } from '../context';
 import { button, clear, h, onLongPress, rafThrottle } from '../dom';
@@ -13,6 +13,8 @@ import { openSceneMenu, openSceneSwitcher, renameEntityPrompt } from '../menus';
  */
 export class ScenePanel {
   readonly el: HTMLElement;
+  /** シートの見出し (シーン名。タップでシーンを切り替え) */
+  readonly title: HTMLElement;
   private tree: HTMLElement;
   private sceneLabel: HTMLElement;
   private search: HTMLInputElement;
@@ -45,27 +47,31 @@ export class ScenePanel {
     });
     this.tree = h('div', { class: 'tree', attrs: { role: 'tree', 'data-testid': 'scene-tree' } });
 
+    // シーン名はシートの見出しに置き、一覧の行を 1 行でも多く見せる
+    this.title = h(
+      'button',
+      {
+        class: 'scene-switch',
+        attrs: { type: 'button', 'data-testid': 'scene-switch', 'aria-label': 'シーンを切り替え' },
+        on: { click: () => openSceneSwitcher(ctx) },
+      },
+      h('span', { class: 'scene-switch-icon', html: icon('layers', 18) }),
+      this.sceneLabel,
+      h('span', { class: 'chev', html: icon('chevronDown', 16) }),
+    );
+
     this.el = h(
       'div',
       { class: 'panel scene-panel' },
       h(
         'div',
-        { class: 'panel-toolbar' },
-        h(
-          'button',
-          {
-            class: 'scene-switch',
-            attrs: { type: 'button', 'data-testid': 'scene-switch' },
-            on: { click: () => openSceneSwitcher(ctx) },
-          },
-          h('span', { html: icon('layers', 18) }),
-          this.sceneLabel,
-          h('span', { class: 'chev', html: icon('chevronDown', 16) }),
-        ),
+        { class: 'panel-toolbar search-row' },
+        h('span', { class: 'search-icon', html: icon('search', 18) }),
+        this.search,
+        this.multiBtn,
         button({ icon: 'plus', title: 'オブジェクトを追加', class: 'icon-btn', onClick: () => ctx.showAddSheet(), testId: 'scene-add' }),
         button({ icon: 'more', title: 'シーンのメニュー', class: 'icon-btn', onClick: () => openSceneMenu(ctx), testId: 'scene-menu' }),
       ),
-      h('div', { class: 'search-row' }, h('span', { class: 'search-icon', html: icon('search', 18) }), this.search, this.multiBtn),
       this.tree,
     );
 
@@ -171,12 +177,13 @@ export class ScenePanel {
       h('span', { class: 'tree-name-text', text: e.name }),
       path ? h('small', { class: 'tree-path', text: path }) : null,
     );
+    // 役割 (プレイヤー・敵・コイン…) を文字で出し、一覧だけで何の物か分かるようにする
+    const role = entityRole(e, isPlayer);
     const badges = h(
       'span',
       { class: 'tree-badges' },
-      isPlayer ? h('span', { class: 'badge', title: 'プレイヤー', html: icon('person', 14) }) : null,
-      isMainCam ? h('span', { class: 'badge', title: 'メインカメラ', html: icon('video', 14) }) : null,
-      e.components.length > 0 ? h('span', { class: 'badge', title: '動作あり', html: icon('sparkles', 14) }) : null,
+      role ? h('span', { class: `role-chip role-${role.tone}`, text: role.label }) : null,
+      isMainCam ? h('span', { class: 'role-chip role-camera', title: 'メインカメラ', text: 'メイン' }) : null,
     );
 
     const eye = h('button', {
@@ -190,17 +197,20 @@ export class ScenePanel {
         },
       },
     });
-    const lock = h('button', {
-      class: `tree-btn ${e.locked ? 'on' : ''}`.trim(),
-      attrs: { type: 'button', 'aria-label': e.locked ? 'ロック解除' : 'ロック', 'data-testid': `lock-${e.id}` },
-      html: icon(e.locked ? 'lock' : 'unlock', 18),
-      on: {
-        click: (ev) => {
-          ev.stopPropagation();
-          A.toggleLocked(ed, e.id);
-        },
-      },
-    });
+    // ロックはメニューから。ロック中の物だけ鍵を出し、タップで解除できるようにする
+    const lock = e.locked
+      ? h('button', {
+          class: 'tree-btn on',
+          attrs: { type: 'button', 'aria-label': 'ロック解除', title: 'ロック中 (タップで解除)', 'data-testid': `lock-${e.id}` },
+          html: icon('lock', 18),
+          on: {
+            click: (ev) => {
+              ev.stopPropagation();
+              A.toggleLocked(ed, e.id);
+            },
+          },
+        })
+      : null;
     const more = h('button', {
       class: 'tree-btn',
       attrs: { type: 'button', 'aria-label': 'メニュー', 'data-testid': `more-${e.id}` },

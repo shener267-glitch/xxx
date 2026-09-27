@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { entities, evalApp, openApp, screenPos, selection } from './helpers';
+import { entities, evalApp, openApp, screenPos, selection, waitSheetClosed } from './helpers';
 
 /**
  * 公開環境 (GitHub Pages) 向けの短い動作確認。
@@ -19,9 +19,11 @@ test('スモーク: 起動 → Cube 追加 → 選択 → Play/Stop → 保存',
   await page.getByTestId('add-cube').tap();
   expect((await entities(page)).length).toBe(before + 1);
   const [id] = await selection(page);
-  const p = await screenPos(page, id);
   await page.getByTestId('tab-scene').tap();
   await page.getByTestId('sheet-close').tap();
+  // シートを閉じると 3D ビューの中心が戻るので、落ち着いてから位置を求める
+  await waitSheetClosed(page);
+  const p = await screenPos(page, id);
   await page.touchscreen.tap(p.x, p.y);
   await expect.poll(() => selection(page)).toEqual([id]);
 

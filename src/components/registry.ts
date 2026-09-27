@@ -26,6 +26,8 @@ export interface PropSchema {
   options?: { value: string; label: string }[];
   /** 補足説明 */
   hint?: string;
+  /** あまり使わない項目 (Inspector では「詳しい設定」を開くと表示) */
+  advanced?: boolean;
 }
 
 /** Play 中の操作入力 */

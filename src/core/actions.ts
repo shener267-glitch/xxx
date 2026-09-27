@@ -480,7 +480,28 @@ export function setEvents(editor: Editor, events: EventRule[], label = 'イベ�
   return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
 }
 
-/** プロジェクトの変数一覧を置き換える */
+/** イベントを追加し、必要な変数も作る (ひな形から作るとき。1 回の Undo で戻せる) */
+export function addEventsWithVariables(editor: Editor, rules: EventRule[], variables: VariableDef[], label: string): boolean {
+  const scene = editor.sceneData;
+  const project = editor.project;
+  const before = { events: clone(scene.events), variables: clone(project.variables) };
+  const names = new Set(project.variables.map((v) => v.name));
+  const after = {
+    events: [...clone(scene.events), ...clone(rules)],
+    // 同じ名前の変数が既にあれば初期値だけ合わせる
+    variables: [
+      ...clone(project.variables).map((v) => variables.find((n) => n.name === v.name) ?? v),
+      ...clone(variables).filter((v) => !names.has(v.name)),
+    ],
+  };
+  const apply = (v: typeof before) => {
+    scene.events = clone(v.events);
+    project.variables = clone(v.variables);
+    editor.events.emit('events-changed', undefined);
+  };
+  return editor.execute(new ValueCommand(label, apply, before, after, null));
+}
+
 /** シーンのタイムラインを置き換える (Undo 可能) */
 export function setTimelines(editor: Editor, timelines: TimelineData[], label = 'タイムラインを変更', mergeKey?: string): boolean {
   const scene = editor.sceneData;

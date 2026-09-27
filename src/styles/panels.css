@@ -26,6 +26,19 @@
   background: var(--panel);
 }
 
+/* シーンタブ: 検索と操作ボタンを 1 行にまとめる */
+.panel-toolbar.search-row {
+  top: 0;
+  gap: 2px;
+  padding: 2px 0 6px;
+}
+
+.panel-toolbar.search-row .search-input {
+  flex: 1;
+  min-width: 0;
+  margin-right: 4px;
+}
+
 .search-icon {
   position: absolute;
   left: 10px;
@@ -202,31 +215,93 @@
 
 /* ---------- シーン (階層ツリー) ---------- */
 
+/* シートの見出しに置くシーンの切り替え */
 .scene-switch {
-  flex: 1;
-  min-width: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  font-weight: 600;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 36px;
+  margin-left: -8px;
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
 }
 
+.scene-switch:active {
+  background: var(--panel-2);
+}
+
+.scene-switch-icon {
+  display: flex;
+  color: var(--accent-2);
+}
+
 .scene-switch .scene-name {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .scene-switch .chev {
+  display: flex;
   color: var(--text-3);
+}
+
+.sheet-title {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 役割 (プレイヤー・敵・コイン…) */
+.role-chip {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--text-2);
+  background: var(--panel-3);
+}
+
+.role-player {
+  color: #cfe3ff;
+  background: rgba(61, 139, 255, 0.32);
+}
+
+.role-enemy,
+.role-hazard {
+  color: #ffd2d2;
+  background: rgba(239, 79, 79, 0.32);
+}
+
+.role-item {
+  color: #ffe7a8;
+  background: rgba(255, 176, 32, 0.28);
+}
+
+.role-npc {
+  color: #d9f5e3;
+  background: rgba(47, 191, 113, 0.3);
+}
+
+.role-goal {
+  color: #f3dcff;
+  background: rgba(166, 99, 255, 0.32);
+}
+
+.role-effect,
+.role-motion,
+.role-camera {
+  color: var(--text-2);
+  background: var(--panel-3);
 }
 
 .tree {
@@ -364,7 +439,8 @@
 
 .tree-badges {
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  margin: 0 4px;
   color: var(--accent-2);
 }
 
@@ -403,15 +479,95 @@
 
 /* ---------- インスペクター ---------- */
 
-.insp-header {
+/* 名前と「項目へ移動」はスクロールしても上に残す */
+.insp-sticky {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
+  margin: 0 -12px;
+  padding: 0 12px;
+  background: var(--panel);
+}
+
+.insp-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 0 8px;
+  padding: 2px 0 6px;
   background: var(--panel);
+}
+
+.insp-jump {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.insp-jump::-webkit-scrollbar {
+  display: none;
+}
+
+.insp-jump[hidden] {
+  display: none;
+}
+
+.jump-chip {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.jump-chip.active {
+  background: var(--accent-bg);
+  border-color: rgba(61, 139, 255, 0.55);
+  color: var(--accent-2);
+}
+
+/* コンポーネントの「詳しい設定」 */
+.advanced-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 4px;
+  border: 1px dashed var(--border-2);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.advanced-props[hidden] {
+  display: none;
+}
+
+.link-btn {
+  display: inline;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--accent-2);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 .insp-icon {
@@ -557,7 +713,26 @@
   color: var(--text-3);
 }
 
+/* 追加シート: 種類へ移動するボタン (スクロールしても上に残す) */
+.catalog-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -16px;
+  padding: 2px 16px 8px;
+  background: var(--panel);
+}
+
+.catalog-nav::-webkit-scrollbar {
+  display: none;
+}
+
 .catalog-title {
+  scroll-margin-top: 48px;
   margin: 14px 2px 8px;
   font-size: 12px;
   font-weight: 700;
@@ -567,7 +742,7 @@
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 8px;
 }
 
@@ -576,9 +751,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 96px;
-  padding: 10px 4px;
+  gap: 3px;
+  min-height: 84px;
+  padding: 8px 4px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1809,10 +1984,43 @@ body.dragging-asset .app .sheet {
 }
 
 /* エラーのお知らせ (3D ビューの左上) */
-.error-chip {
+/* 3D ビュー左上のお知らせ (エラー・問題チェック) */
+.vp-chips {
   position: absolute;
   left: 10px;
   top: 10px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 110px);
+  pointer-events: none;
+}
+
+.problem-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 12px 0 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 176, 32, 0.92);
+  color: #231600;
+  font-weight: 700;
+  pointer-events: auto;
+}
+
+.problem-chip.has-error {
+  background: rgba(239, 79, 79, 0.92);
+  color: #fff;
+}
+
+.problem-chip[hidden] {
+  display: none;
+}
+
+.error-chip {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1824,7 +2032,6 @@ body.dragging-asset .app .sheet {
   color: #fff;
   font-weight: 700;
   pointer-events: auto;
-  z-index: 5;
 }
 .error-chip[hidden] {
   display: none;
@@ -2248,4 +2455,135 @@ body.dragging-asset .app .sheet {
 }
 .ge-help p {
   margin: 0;
+}
+
+.panel-toolbar.search-row .search-icon {
+  top: 13px;
+}
+
+/* 問題チェック */
+.check-ok,
+.check-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.check-ok {
+  background: rgba(47, 191, 113, 0.16);
+  color: #9ff0b8;
+}
+
+.check-summary {
+  background: var(--panel-2);
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-3);
+  background: var(--panel-2);
+}
+
+.issue.lv-error {
+  border-left-color: var(--red);
+}
+
+.issue.lv-warn {
+  border-left-color: var(--orange);
+}
+
+.issue.lv-info {
+  border-left-color: var(--accent);
+}
+
+.issue-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.issue-badge {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  background: var(--panel-3);
+}
+
+.issue.lv-error .issue-badge {
+  background: rgba(239, 79, 79, 0.3);
+  color: #ffd2d2;
+}
+
+.issue.lv-warn .issue-badge {
+  background: rgba(255, 176, 32, 0.28);
+  color: #ffe7a8;
+}
+
+.issue-title {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.issue-scene {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.issue-detail {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* イベント: 選び直しが必要な部品 */
+.ev-chip.broken {
+  border-color: var(--red) !important;
+  border-style: dashed !important;
+  background: rgba(239, 79, 79, 0.12) !important;
+}
+
+.ev-card.flash {
+  animation: ev-flash 1.2s ease-out;
+}
+
+@keyframes ev-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.log-hint {
+  margin: 4px 0 2px 22px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(61, 139, 255, 0.12);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.log-hint b {
+  color: var(--accent-2);
 }

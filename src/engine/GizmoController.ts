@@ -88,6 +88,14 @@ export class GizmoController {
 
   /** 地形ブラシなどの間はギズモを隠す */
   private suspended = false;
+  /** 画面の一部がパネルで覆われているときの大きさの補正 */
+  private sizeScale = 1;
+
+  setSizeScale(k: number): void {
+    if (Math.abs(k - this.sizeScale) < 1e-4) return;
+    this.sizeScale = k;
+    this.controls.size = this.editor.settings.gizmoSize * k;
+  }
 
   setEnabled(on: boolean): void {
     if (this.suspended === !on) return;
@@ -102,7 +110,7 @@ export class GizmoController {
     const ids = this.editor.mode === 'edit' && tool !== 'select' && !this.suspended ? this.editableSelection() : [];
     this.attachedIds = ids;
     const c = this.controls;
-    c.size = s.gizmoSize;
+    c.size = s.gizmoSize * this.sizeScale;
     c.setTranslationSnap(s.snapEnabled ? s.snapMove : null);
     c.setRotationSnap(s.snapEnabled ? MathUtils.degToRad(s.snapRotate) : null);
     c.setScaleSnap(s.snapEnabled ? s.snapScale : null);

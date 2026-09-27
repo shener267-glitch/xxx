@@ -3,6 +3,8 @@ import * as A from '../core/actions';
 import { entityIcon } from '../core/catalog';
 import { createId } from '../core/util';
 import type { ViewPreset } from '../engine/EditorCamera';
+import { checkProject, countProblems } from '../core/diagnostics';
+import { debounce } from '../core/util';
 import { logger } from '../core/logger';
 import type { AppContext } from './context';
 import { button, h, setIcon } from './dom';
@@ -23,6 +25,7 @@ export class ViewportOverlay {
   private spaceBtn: HTMLButtonElement;
   private multiBtn: HTMLButtonElement;
   private contextBar: HTMLElement;
+  private ctxTools: HTMLButtonElement[] = [];
   private ctxName: HTMLElement;
   private ctxIcon: HTMLElement;
   private banner: HTMLElement;
@@ -86,9 +89,21 @@ export class ViewportOverlay {
     // 選択中の操作バー
     this.ctxIcon = h('span', { class: 'ctx-icon' });
     this.ctxName = h('span', { class: 'ctx-name' });
+    // シートを開いている間はツールバーが隠れるので、移動・回転・拡大をここで切り替える
+    const toolButtons = (['translate', 'rotate', 'scale'] as const).map((tool) =>
+      button({
+        icon: tool === 'translate' ? 'move' : tool === 'rotate' ? 'rotate' : 'scale',
+        title: tool === 'translate' ? '移動' : tool === 'rotate' ? '回転' : '拡大縮小',
+        class: 'ctx-btn ctx-tool',
+        testId: `ctx-tool-${tool}`,
+        onClick: () => ed.setTool(tool),
+      }),
+    );
+    this.ctxTools = toolButtons;
     this.contextBar = h(
       'div',
       { class: 'context-bar', attrs: { 'data-testid': 'context-bar' } },
+      h('div', { class: 'ctx-tools', attrs: { role: 'radiogroup', 'aria-label': 'ツール' } }, toolButtons),
       h(
         'button',
         {
@@ -99,17 +114,8 @@ export class ViewportOverlay {
         this.ctxIcon,
         this.ctxName,
       ),
+      button({ icon: 'focus', title: 'カメラを寄せる', class: 'ctx-btn', testId: 'ctx-focus', onClick: () => ed.requestFocus() }),
       button({ icon: 'duplicate', title: '複製', class: 'ctx-btn', testId: 'ctx-duplicate', onClick: () => A.duplicateEntities(ed) }),
-      button({
-        icon: 'copy',
-        title: 'コピー',
-        class: 'ctx-btn',
-        testId: 'ctx-copy',
-        onClick: () => {
-          const n = A.copyEntities(ed);
-          if (n) toast(`${n}個をコピーしました`, 'info', 1200);
-        },
-      }),
       button({ icon: 'trash', title: '削除', class: 'ctx-btn ctx-danger', testId: 'ctx-delete', onClick: () => A.deleteEntities(ed) }),
       button({
         icon: 'more',
@@ -169,7 +175,40 @@ export class ViewportOverlay {
     };
     ctx.viewport.onPreviewCameraChange(updatePreview);
 
-    this.el = h('div', { class: 'viewport-overlay' }, this.axisSvg, rail, this.banner, previewBanner, this.hint, this.contextBar, errorChip);
+    // 問題チェック: 直した方がよい設定があれば知らせる (タップでチェックの一覧)
+    const problemChip = h('button', {
+      class: 'problem-chip',
+      attrs: { type: 'button', 'data-testid': 'problem-chip', hidden: '' },
+      on: { click: () => ctx.console.show('check') },
+    });
+    const updateProblems = debounce(() => {
+      const c = countProblems(checkProject(ed.project, ed.sceneData.id));
+      const n = c.errors + c.warnings;
+      problemChip.hidden = n === 0;
+      problemChip.classList.toggle('has-error', c.errors > 0);
+      problemChip.innerHTML = `${icon('alert', 16)}<span>${c.errors > 0 ? '問題' : '注意'} ${n}</span>`;
+      problemChip.title = c.errors > 0 ? `エラー ${c.errors} 件・注意 ${c.warnings} 件` : `注意 ${c.warnings} 件`;
+    }, 300);
+    for (const type of ['history-changed', 'scene-loaded', 'assets-changed', 'project-changed'] as const) ed.events.on(type, updateProblems);
+    updateProblems();
+    // Play を始めたときにエラーがあれば知らせる (Play は続ける)
+    ed.events.on('mode-changed', (mode) => {
+      if (mode !== 'play') return;
+      const c = countProblems(checkProject(ed.project, ed.sceneData.id));
+      if (c.errors > 0) toast(`動かない設定が ${c.errors} 件あります (メニュー →「デバッグ」→「チェック」で確認)`, 'warn', 4000);
+    });
+
+    this.el = h(
+      'div',
+      { class: 'viewport-overlay' },
+      this.axisSvg,
+      rail,
+      this.banner,
+      previewBanner,
+      this.hint,
+      this.contextBar,
+      h('div', { class: 'vp-chips' }, errorChip, problemChip),
+    );
 
     const ev = ed.events;
     ev.on('selection-changed', () => this.updateContext());
@@ -190,6 +229,12 @@ export class ViewportOverlay {
 
   private updateToggles(): void {
     const ed = this.ctx.editor;
+    const tools = ['translate', 'rotate', 'scale'];
+    this.ctxTools.forEach((b, i) => {
+      const on = ed.tool === tools[i];
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', String(on));
+    });
     this.snapBtn.classList.toggle('active', ed.settings.snapEnabled);
     this.snapBtn.setAttribute('aria-pressed', String(ed.settings.snapEnabled));
     const local = ed.space === 'local';

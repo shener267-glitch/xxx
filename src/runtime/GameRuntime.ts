@@ -4,6 +4,7 @@ import type { Object3D } from 'three';
 import type { ComponentInstance, GameInput, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
 import { getComponentDef } from '../components/registry';
 import { logger } from '../core/logger';
+import { explainError } from '../core/errorHints';
 import type { PlayCameraMode, QualityLevel } from '../core/settings';
 import type { EntityData, ProjectData, SceneData, TransformData, UIButtonAction, Vec3, WeatherType } from '../core/types';
 import { vec3Round } from '../core/transformMath';
@@ -439,7 +440,11 @@ export class GameRuntime implements RuntimeAPI {
     const name = typeof entity === 'string' ? entity : entity?.name;
     const entityId = typeof entity === 'object' && entity ? entity.id : undefined;
     const source = name ? `Play / ${name}` : 'Play';
-    logger.log(level, message, source, err, { entityId });
+    // 動作 (コンポーネント) のエラーは、その動作だけ止めてゲームは続けている
+    const hint =
+      explainError(err) ??
+      (level === 'error' && entityId ? 'このオブジェクトの動作だけを止めて、ゲームは続けています。インスペクターの「動作」の設定を見直すか、動作を消して付け直してください。' : undefined);
+    logger.log(level, message, source, err, { entityId, hint });
     this.opts.onMessage?.(`${name ? `[${name}] ` : ''}${message}`, level);
   }
 

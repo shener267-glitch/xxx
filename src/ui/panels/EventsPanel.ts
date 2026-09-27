@@ -10,6 +10,8 @@ import { icon } from '../icons';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from '../overlays';
 import { fieldRow, NumberField, Select, TextArea, TextField, Toggle, Vec3Field } from '../widgets';
 import { TimelineView } from './timelineView';
+import type { EventTemplate, TemplateValues } from '../../core/eventTemplates';
+import { EVENT_TEMPLATES, templateReady } from '../../core/eventTemplates';
 
 /**
  * イベントタブ: ノーコードで「いつ」→「もし」→「なら / そうでなければ」を組み立てる。
@@ -124,6 +126,7 @@ export class EventsPanel {
         'div',
         { class: 'button-row' },
         button({ icon: 'plus', label: 'イベントを追加', class: 'primary', testId: 'ev-add', onClick: () => this.addRule() }),
+        button({ icon: 'sparkles', label: 'ひな形から', class: 'secondary', testId: 'ev-template', onClick: () => this.pickTemplate() }),
         button({ icon: 'sliders', label: `変数 (${ed.project.variables.length})`, class: 'secondary', testId: 'ev-vars', onClick: () => this.openVariables() }),
       ),
     );
@@ -140,6 +143,97 @@ export class EventsPanel {
       return;
     }
     rules.forEach((r, i) => this.list.appendChild(this.card(r, i)));
+  }
+
+  // ------------------------------------------------------------------
+  // ひな形 (スイッチでドアを開ける など)
+  // ------------------------------------------------------------------
+
+  private pickTemplate(): void {
+    actionSheet(
+      'ひな形からイベントを作る',
+      EVENT_TEMPLATES.map((t) => ({ label: t.label, icon: t.icon, hint: t.description, testId: `ev-tpl-${t.id}`, onSelect: () => this.openTemplate(t) })),
+      { testId: 'ev-tpl-list' },
+    );
+  }
+
+  private openTemplate(t: EventTemplate): void {
+    const ed = this.ctx.editor;
+    const objects = ed.scene.ordered().filter((e) => e.kind !== 'ui');
+    const values: TemplateValues = {};
+    const rows: HTMLElement[] = [h('p', { class: 'field-note', text: `${t.description}。作ったあとはふつうのイベントとして自由に直せます。` })];
+    const readers: (() => void)[] = [];
+    const taken = new Set<string>();
+    for (const f of t.fields) {
+      if (f.type === 'entity') {
+        // 名前などから候補を推測して最初に選んでおく (同じ物を 2 つの欄で選ばないように)
+        const guess = objects.find((e) => !taken.has(e.id) && f.guess?.(e));
+        if (guess) taken.add(guess.id);
+        values[f.key] = guess?.id ?? '';
+        const options = [{ value: '', label: '(選んでください)' }, ...objects.map((e) => ({ value: e.id, label: e.name }))];
+        const sel = new Select({ options, title: f.label, testId: `ev-tpl-field-${f.key}`, onChange: (v) => (values[f.key] = v) });
+        sel.set(String(values[f.key]));
+        rows.push(fieldRow(f.label, sel.el, { hint: f.hint }));
+      } else if (f.type === 'number') {
+        values[f.key] = Number(f.default ?? 0);
+        const nf = new NumberField({ title: f.label, step: f.step ?? 1, min: f.min, testId: `ev-tpl-field-${f.key}`, onChange: (v) => (values[f.key] = v) });
+        nf.set(Number(values[f.key]));
+        rows.push(fieldRow(f.label, nf.el, { hint: f.hint }));
+      } else {
+        const tf = new TextField({ title: f.label, testId: `ev-tpl-field-${f.key}`, onChange: (v) => (values[f.key] = v) });
+        tf.set(String(f.default ?? ''));
+        readers.push(() => (values[f.key] = tf.el.value));
+        rows.push(fieldRow(f.label, tf.el, { hint: f.hint }));
+      }
+    }
+    if (t.fields.length === 0) rows.push(h('p', { class: 'field-note', text: 'このまま「作る」を押してください。' }));
+    openModal({
+      title: t.label,
+      content: h('div', { class: 'ev-tpl-form' }, rows),
+      testId: 'ev-tpl-modal',
+      className: 'ev-modal',
+      actions: [
+        { label: 'キャンセル' },
+        {
+          label: '作る',
+          kind: 'primary',
+          testId: 'ev-tpl-ok',
+          onClick: () => {
+            readers.forEach((r) => r());
+            const missing = templateReady(t, values);
+            if (missing) {
+              toast(`「${missing}」を選んでください`, 'warn', 2000);
+              return false;
+            }
+            const { rules, variables } = t.build(values, { entities: ed.scene.ordered(), entityName: (id) => ed.scene.get(id)?.name ?? '?' });
+            A.addEventsWithVariables(ed, rules, variables, `ひな形「${t.label}」`);
+            toast(`「${t.label}」のイベントを作りました`, 'success', 1800);
+            if (this.mode !== 'rules') this.setMode('rules');
+            const last = rules[rules.length - 1];
+            if (last) requestAnimationFrame(() => this.reveal(last.id));
+          },
+        },
+      ],
+    });
+  }
+
+  /** そのイベント (またはタイムライン) を見せる (問題チェックから) */
+  reveal(ruleId: string | null, timelineId?: string): void {
+    if (timelineId) {
+      this.timelines.open(timelineId);
+      this.mode = 'timelines';
+      this.render();
+      return;
+    }
+    if (this.mode !== 'rules') this.setMode('rules');
+    else this.render();
+    if (!ruleId) return;
+    const card = this.list.querySelector<HTMLElement>(`[data-rule-id="${CSS.escape(ruleId)}"]`);
+    if (!card) return;
+    requestAnimationFrame(() => card.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    card.classList.remove('flash');
+    void card.offsetWidth;
+    card.classList.add('flash');
   }
 
   private setMode(mode: 'rules' | 'timelines'): void {
@@ -169,9 +263,15 @@ export class EventsPanel {
 
     const chip = (kind: BlockKind, block: EventBlock, onTap: () => void, testId: string, prefix?: string) => {
       const def = getBlockDef(kind, block.type);
+      // 選んでいない項目がある / 消えたオブジェクトを使っている部品は赤く示す
+      const broken = !!missingParam(kind, block) || /\(削除された/.test(summarize(kind, block, sc));
       return h(
         'button',
-        { class: `ev-chip ${kind}${def ? '' : ' unknown'}`, attrs: { type: 'button', 'data-testid': testId }, on: { click: onTap } },
+        {
+          class: `ev-chip ${kind}${def ? '' : ' unknown'}${broken ? ' broken' : ''}`,
+          attrs: { type: 'button', 'data-testid': testId, title: broken ? '選び直しが必要です' : '' },
+          on: { click: onTap },
+        },
         h('span', { class: 'ev-chip-icon', html: icon(def?.icon ?? 'help', 16) }),
         prefix ? h('span', { class: 'ev-chip-num', text: prefix }) : null,
         h('span', { class: 'ev-chip-text', text: summarize(kind, block, sc) }),
@@ -205,7 +305,7 @@ export class EventsPanel {
     }
     return h(
       'div',
-      { class: `ev-card${r.enabled ? '' : ' disabled'}`, attrs: { 'data-testid': `ev-card-${index}` } },
+      { class: `ev-card${r.enabled ? '' : ' disabled'}`, attrs: { 'data-testid': `ev-card-${index}`, 'data-rule-id': r.id } },
       h('div', { class: 'ev-head' }, enabled.el, title, r.once ? h('span', { class: 'ev-badge', text: '1回だけ' }) : null, menu),
       rows,
     );

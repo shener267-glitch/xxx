@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { emptyGroundPoint, emptyPoint, enterNumber, entities, entity, entityByName, evalApp, longPress, openApp, reloadApp, screenPos, selection, stableBox, touchDrag, twoFinger, waitSheetClosed } from './helpers';
+import { closeSheet, emptyGroundPoint, emptyPoint, enterNumber, entities, entity, entityByName, evalApp, longPress, openApp, reloadApp, screenPos, selection, stableBox, touchDrag, twoFinger, waitSheetClosed } from './helpers';
 
 /**
  * Phase 1 の受け入れテスト (スマートフォン縦画面・タッチ操作)。
@@ -134,8 +134,12 @@ test('5. 移動・回転・拡大縮小 (ドラッグ / ギズモ / 数値入力
   expect(t.scale).toEqual([2, 2, 2]);
 
   // (d) 回転ツールに切り替えるとギズモも回転モードになる
-  await page.getByTestId('tool-rotate').tap();
+  // シートを開いている間はツールバーが隠れるので、選択中の操作バーで切り替える
+  await page.getByTestId('ctx-tool-rotate').tap();
   expect(await evalApp(page, (app) => app.viewport.gizmo.controls.mode)).toBe('rotate');
+  await expect(page.getByTestId('ctx-tool-rotate')).toHaveAttribute('aria-checked', 'true');
+  // シートを閉じればツールバーでも切り替えられる
+  await closeSheet(page);
   await page.getByTestId('tool-scale').tap();
   expect(await evalApp(page, (app) => app.viewport.gizmo.controls.mode)).toBe('scale');
 
@@ -171,8 +175,12 @@ test('6. Scene と Inspector が機能する', async ({ page }) => {
   expect((await entity(page, id)).visible).toBe(false);
   await page.getByTestId(`vis-${id}`).tap();
   expect((await entity(page, id)).visible).toBe(true);
-  await page.getByTestId(`lock-${id}`).tap();
+  // ロックは行のメニューから。ロック中の行だけに鍵が出る
+  await expect(page.getByTestId(`lock-${id}`)).toHaveCount(0);
+  await page.getByTestId(`more-${id}`).tap();
+  await page.getByTestId('menu-lock').tap();
   expect((await entity(page, id)).locked).toBe(true);
+  await expect(page.getByTestId(`lock-${id}`)).toBeVisible();
 
   // ロック中は 3D ビューでタップしても選択されない
   await page.getByTestId('sheet-close').tap();

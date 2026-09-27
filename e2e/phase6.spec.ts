@@ -374,13 +374,15 @@ test('ドラッグして置く: カードのつまみを 3D ビューへドラ�
   const vp = await page.getByTestId('viewport').boundingBox();
   const to = { x: vp!.x + vp!.width * 0.5, y: vp!.y + 150 };
   const before = await countKind(page, 'model');
+  // 指を離す場所の地面の点 (シートを閉じると 3D ビューの中心が戻るので、落とす前に求める)
+  await expect.poll(() => evalApp(page, (app) => app.viewport.camera.insetsAnimating)).toBe(false);
+  const expected = await evalApp(page, (app, p) => app.viewport.groundPointAt(p.x, p.y), to);
   await touchDrag(page, from, to, 16);
   await expect.poll(() => countKind(page, 'model')).toBe(before + 1);
   // シートは閉じ、置いたモデルが選択される
   await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
   const id = await selected(page);
   const pos = await evalApp(page, (app, i) => app.editor.scene.get(i).transform.position, id);
-  const expected = await evalApp(page, (app, p) => app.viewport.groundPointAt(p.x, p.y), to);
   expect(pos[0]).toBeCloseTo(expected.x, 0);
   expect(pos[2]).toBeCloseTo(expected.z, 0);
   await expect(page.getByTestId('drag-ghost')).toHaveCount(0);

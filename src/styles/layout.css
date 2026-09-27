@@ -338,6 +338,21 @@
   padding: 0 12px 24px;
 }
 
+/* 縦画面: 開いたシートはツールバーの上に重ねる (ツールバーの高さ分だけ下に伸ばす) */
+.app:not(.layout-side) .main {
+  overflow: visible;
+}
+
+.app:not(.layout-side) .viewport,
+.app:not(.layout-side) .runtime-overlay {
+  overflow: hidden;
+}
+
+.app:not(.layout-side) .sheet {
+  bottom: calc(-1 * var(--toolbar-h));
+  z-index: 35;
+}
+
 /* 横画面・PC: 右側に浮かぶパネル */
 .layout-side .sheet {
   top: 8px;
@@ -444,6 +459,17 @@
   flex-direction: column;
   gap: 6px;
   pointer-events: auto;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+}
+
+/* 縦画面でシートを開いている間は、見えている範囲が狭いのでボタン列をしまう (シートで途中から隠れないように) */
+.app:not(.layout-side)[data-sheet='half'] .rail,
+.app:not(.layout-side)[data-sheet='full'] .rail {
+  opacity: 0;
+  transform: translateX(12px);
+  pointer-events: none;
 }
 
 .layout-side .axis-gizmo {
@@ -570,6 +596,28 @@
 
 .ctx-btn.ctx-danger {
   color: #ff7474;
+}
+
+/* 移動・回転・拡大 (縦画面でシートを開いている間だけ。名前の代わりに出す) */
+.ctx-tools {
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.ctx-tool.active {
+  background: var(--panel-3);
+  color: var(--accent-2);
+}
+
+.app:not(.layout-side):not([data-sheet='closed']) .ctx-tools {
+  display: flex;
+}
+
+.app:not(.layout-side):not([data-sheet='closed']) .ctx-chip {
+  display: none;
 }
 
 .multi-banner {
