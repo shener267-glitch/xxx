@@ -19,7 +19,7 @@ import type { SceneBridge } from './SceneBridge';
  * - マウス: 左ドラッグ回転、右/中ドラッグ平行移動、ホイールでズーム
  */
 
-type Mode = 'idle' | 'pending' | 'gizmo' | 'orbit' | 'pan' | 'drag-object' | 'multi' | 'blocked';
+type Mode = 'idle' | 'pending' | 'gizmo' | 'orbit' | 'pan' | 'drag-object' | 'brush' | 'multi' | 'blocked';
 
 interface PointerInfo {
   id: number;
@@ -42,6 +42,15 @@ interface ObjectDrag {
   startHit: Vector3;
 }
 
+/** 地形のブラシなど、1 本指のドラッグを横取りする道具 */
+export interface ViewportTool {
+  /** 押した場所で使えるなら true (ドラッグを受け持つ) */
+  begin(clientX: number, clientY: number): boolean;
+  move(clientX: number, clientY: number): void;
+  end(cancel: boolean): void;
+  hover?(clientX: number, clientY: number): void;
+}
+
 export interface ViewportInputHandlers {
   onTap(clientX: number, clientY: number, additive: boolean): void;
   onDoubleTap(clientX: number, clientY: number): void;
@@ -56,9 +65,12 @@ const LONG_PRESS_MS = 550;
 
 export class ViewportInput {
   enabled = true;
+  /** 有効な道具 (地形ブラシ)。null なら通常の操作 */
+  tool: ViewportTool | null = null;
   private mode: Mode = 'idle';
   private pointers = new Map<number, PointerInfo>();
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private longPressFrame = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
   private multi = { dist: 0, midX: 0, midY: 0, angle: 0 };
   private drag: ObjectDrag | null = null;
@@ -134,6 +146,10 @@ export class ViewportInput {
         this.setMode('pending');
         return;
       }
+      if (this.tool && this.tool.begin(e.clientX, e.clientY)) {
+        this.setMode('brush');
+        return;
+      }
       const ndc = this.ndc(e.clientX, e.clientY);
       const axis = this.gizmo.peekAxis(ndc);
       // 移動ツールで中央付近のハンドル (平面・自由移動) と選択中の本体が重なる場合は、
@@ -148,10 +164,16 @@ export class ViewportInput {
       if (e.pointerType !== 'mouse') {
         this.longPressTimer = setTimeout(() => {
           this.longPressTimer = null;
-          if (this.mode === 'pending' && this.pointers.size === 1) {
-            this.setMode('blocked');
-            this.handlers.onLongPress(p.x, p.y);
-          }
+          // 描画が重い端末では指の移動イベントが遅れて届くことがある。
+          // 溜まっている入力を先に処理させるため、判定は次のフレームで行う
+          // (その間に指が動いていればドラッグとして扱われ、長押しにはならない)
+          this.longPressFrame = requestAnimationFrame(() => {
+            this.longPressFrame = 0;
+            if (this.mode === 'pending' && this.pointers.size === 1 && this.pointers.get(p.id) === p) {
+              this.setMode('blocked');
+              this.handlers.onLongPress(p.x, p.y);
+            }
+          });
         }, LONG_PRESS_MS);
       }
     } else if (this.pointers.size === 2) {
@@ -159,6 +181,8 @@ export class ViewportInput {
       // 1本指の操作中に2本目が触れたら、その操作を取り消してカメラ操作に切り替える
       if (this.mode === 'gizmo') this.gizmo.cancel();
       if (this.mode === 'drag-object') this.cancelObjectDrag();
+      // ブラシでなぞった分は残して、カメラ操作に切り替える
+      if (this.mode === 'brush') this.tool?.end(false);
       this.beginMulti();
       this.setMode('multi');
     } else {
@@ -170,8 +194,11 @@ export class ViewportInput {
     if (!this.enabled) return;
     const p = this.pointers.get(e.pointerId);
     if (!p) {
-      // ボタンを押していないマウス移動: ギズモのハイライト
-      if (e.pointerType === 'mouse') this.gizmo.hover(this.ndc(e.clientX, e.clientY));
+      // ボタンを押していないマウス移動: ギズモのハイライト / ブラシの位置
+      if (e.pointerType === 'mouse') {
+        if (this.tool?.hover) this.tool.hover(e.clientX, e.clientY);
+        else this.gizmo.hover(this.ndc(e.clientX, e.clientY));
+      }
       return;
     }
     const dx = e.clientX - p.x;
@@ -209,6 +236,9 @@ export class ViewportInput {
         break;
       case 'drag-object':
         this.updateObjectDrag(p.x, p.y);
+        break;
+      case 'brush':
+        this.tool?.move(p.x, p.y);
         break;
       case 'multi':
         this.updateMulti();
@@ -257,6 +287,9 @@ export class ViewportInput {
         if (cancelled) this.cancelObjectDrag();
         else this.endObjectDrag();
         break;
+      case 'brush':
+        this.tool?.end(cancelled);
+        break;
       default:
         break;
     }
@@ -289,6 +322,8 @@ export class ViewportInput {
   private clearLongPress(): void {
     if (this.longPressTimer) clearTimeout(this.longPressTimer);
     this.longPressTimer = null;
+    if (this.longPressFrame) cancelAnimationFrame(this.longPressFrame);
+    this.longPressFrame = 0;
   }
 
   // ------------------------------------------------------------------
@@ -366,7 +401,7 @@ export class ViewportInput {
     const model = ed.scene;
     const selected = ed.selection.ids.find((id) => model.isAncestorOrSelf(id, picked));
     if (!selected) return false;
-    const ids = model.topLevel(ed.selection.ids).filter((id) => !model.get(id)?.locked);
+    const ids = model.topLevel(ed.selection.ids).filter((id) => !model.get(id)?.locked && model.get(id)?.kind !== 'ui');
     if (ids.length === 0) return false;
     const pickedObj = this.bridge.get(selected);
     if (!pickedObj) return false;
@@ -435,6 +470,7 @@ export class ViewportInput {
   reset(): void {
     if (this.mode === 'gizmo') this.gizmo.cancel();
     if (this.mode === 'drag-object') this.cancelObjectDrag();
+    if (this.mode === 'brush') this.tool?.end(true);
     this.clearLongPress();
     this.pointers.clear();
     this.setMode('idle');

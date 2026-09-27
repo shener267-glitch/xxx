@@ -21,6 +21,10 @@ export interface EditorSettings {
   /** Play 終了時に Play 中の変更 (位置など) をシーンに残す */
   playKeepChanges: boolean;
   showHints: boolean;
+  /** エディタでも水の動き・天候をアニメーション表示する (電池を多く使う) */
+  previewEffects: boolean;
+  /** Play をタイトル画面から始める */
+  playFromTitle: boolean;
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -38,6 +42,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   playCamera: 'game',
   playKeepChanges: false,
   showHints: true,
+  previewEffects: false,
+  playFromTitle: false,
 };
 
 const KEY = 'pocket-engine:settings';

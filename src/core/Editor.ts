@@ -25,6 +25,10 @@ export interface EditorEvents extends SceneEvents {
   'dirty-changed': boolean;
   /** ビューポートにフォーカス (カメラを寄せる) 要求 */
   'focus-request': string[];
+  /** アセット一覧の変更 */
+  'assets-changed': void;
+  /** イベント・変数の変更 */
+  'events-changed': void;
 }
 
 export interface ExecuteOptions {

@@ -35,12 +35,12 @@ export default defineConfig({
     {
       name: 'mobile-portrait',
       use: { ...devices['iPhone 13'], browserName: 'chromium' },
-      testIgnore: /desktop\.spec\.ts/,
+      testIgnore: /desktop.*\.spec\.ts/,
     },
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
-      testMatch: /desktop\.spec\.ts/,
+      testMatch: /desktop.*\.spec\.ts/,
     },
   ],
   webServer: REMOTE_URL

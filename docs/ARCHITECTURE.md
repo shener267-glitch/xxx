@@ -78,6 +78,87 @@
 コンポーネントでエラーが起きた場合は、そのコンポーネントだけを停止し、
 「Play / オブジェクト名」の形でエラー発生箇所をログに残す (`core/logger.ts`)。
 
+### ゲームの仕組み (Phase 3)
+
+```
+GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物・変数・時間 (DOM 非依存・単体テスト対象)
+             ├─ AudioEngine   Web Audio。組み込みの効果音・音楽は合成、音声アセットはデコードして再生
+             ├─ GameUI        HUD・シーンの UI 要素・ジャンプ/アクションボタン・会話・各画面 (DOM)
+             ├─ RuntimeInput  ジョイスティック・視点・キーボード・ジャンプ/アクションの入力キュー
+             └─ PhysicsWorld  プレイヤー・敵には自動で「動く」ボディ、その他のメッシュは自動で固定の当たり判定
+```
+
+- HP・ダメージ・倒れたとき (スコア加算 / 残機を減らして復活 / ゲームオーバー) はランタイムが一元管理し、
+  コンポーネントは `runtime.damage()` などの API (`RuntimeAPI`) を呼ぶだけにしている
+- 「拾う・触れる」は見た目の箱 (Box3) の重なりで判定するため、物理 OFF のシーンでも動く
+- 会話・メニュー・タイトル・終了画面の表示中はゲームの進行 (時間・コンポーネント・物理) を止める (`frozen`)
+- ゲーム内の出来事は `runtime.emit(event, entityId)` で通知される (Phase 4 のイベントシステムの入口)
+- 「もう一度」「タイトルへ」はランタイムを作り直す (`PlayController.restart`)。セーブデータは `localStorage` の
+  `pocket-engine:save:<プロジェクトID>` に保存し、タイトル画面の「つづきから」で読み込む
+
+### イベント (Phase 4)
+
+- データ: `SceneData.events: EventRule[]` (いつ = `trigger`、もし = `conditions`、なら = `actions`、ちがえば = `elseActions`)、
+  `ProjectData.variables: VariableDef[]`。どれも「種類 + パラメータ」の `EventBlock` で表す (`core/events.ts`)
+- 各ブロックの定義 (`BlockDef`) にパラメータの型を書いておくと、エディタの入力欄と文章の要約が自動で作られる
+- 実行: `runtime/EventSystem.ts`。ゲーム本体とは `EventHost` だけでやり取りするので単体テストできる
+  - 時間・触れた・条件のトリガーは毎フレーム判定 (変化した瞬間だけ発火)、拾った・倒した などは `runtime.emit` から受け取る
+  - 「待つ」「会話」は実行を一時停止して次のフレーム以降に再開。1 フレームの動作数に上限を設けて無限ループを防ぐ
+  - 知らない種類 (新しいバージョンのデータ) は読み込み時に残し、実行時は無視する
+- シーン切り替えは `PlayController` がランタイムを作り直し、`GameState` を引き継ぐ
+
+### アニメーション・パーティクル (Phase 5)
+
+- キーフレーム: `core/animation.ts` (クリップ = 時刻付きのローカルのトランスフォーム)。コンポーネント「アニメーション」の
+  props に保存し、Inspector の専用エディタ (`ui/panels/animEditor.ts`) で編集。3D ビューのプレビューは
+  `EditorViewport.previewPose()` でデータを変えずに見た目だけ動かす
+- キャラクターの動き: 当たり判定を持つオブジェクト (Group) ではなく、その中のメッシュ (`userData.content`) だけを動かす
+- パーティクル: `engine/particles.ts`。粒は CPU で動かし 1 回の `Points` で描画 (独自シェーダーで粒ごとの大きさ・色)。
+  ワールド座標で動かすのでシーンの直下に置く。エディタでは `EffectPreview` が選択中の発生源を動かす
+- コンポーネント同士・イベントからの操作は `runtime.registerController / getController` (アニメーション・パーティクル)
+
+### アセット・部品 (Phase 6)
+
+- アセットの本体 (Blob) は IndexedDB の `assets` ストア、一覧用の情報 (`AssetEntry`: 種類・フォルダ・小さな画像・
+  モデルの大きさ / アニメーション名 / 画像の大きさ / 音声の長さ) はプロジェクトの JSON に保存。取り込みと削除は `app/AssetService.ts`
+  (削除時はプロジェクト内の参照を外す)。フォルダはアセットの `folder` と空のフォルダ用の `ProjectData.assetFolders`
+- 3D モデル: `engine/models.ts`。GLTFLoader / SkeletonUtils は動的 import (別チャンク)。同じアセットは 1 回だけ読み込んで
+  複製し (ジオメトリ・マテリアルは共有、`userData.sharedModel` で破棄対象から除外)、スキンメッシュは骨ごと複製。
+  エンティティは `kind: 'model'` + `EntityData.model` (アセット ID・大きさ・中心・再生するアニメーション)。
+  `SceneBuilder` は入れ物 (Group) を先に置いて非同期に中身を入れ、読み込むまではワイヤーフレームの箱を表示。
+  ランタイムは `SceneBuilder.whenLoaded()` を待ってから開始し、`AnimationMixer` を `'modelAnim'` コントローラとして登録
+- 小さな画像: `engine/thumbnail.ts` (画面用のレンダラーで別の描画先に描く。WebGL を増やさない)
+- 置く: `core/assetPlacement.ts` (アセット → エンティティ。DOM 非依存)。ドラッグ配置は画面座標 → 地面の点
+- 部品 (Prefab): `core/prefabs.ts`。`PrefabEntry` はサブツリーのエンティティをそのまま保存し、置くときに ID を振り直す。
+  置いた物は `EntityData.prefab` で部品とつながる。大量配置の位置は決まった乱数 (seed) で計算するので同じ設定なら同じ配置
+
+### 地形・空・画面の効果 (Phase 7)
+
+- 地形: `core/terrain.ts` (高さの格子・生成・ブラシ。DOM 非依存)、`engine/terrainMesh.ts` (格子のメッシュ・
+  高さと傾きによる頂点カラー・光線との交点を格子を進んで求める)、`engine/TerrainBrush.ts` (ブラシ編集)。
+  ブラシは `ViewportInput.tool` として 1 本指のドラッグを受け持ち、なぞっている間は作業用のコピーで見た目だけ更新、
+  指を離したら `setEntityValue('terrain.heights')` で 1 回の Undo にする。物理は cannon-es の `Heightfield`
+  (`colliderShapes.terrainHeightfield`。XY 平面の格子を X 軸で -90° 回すため行の順番を逆にする)
+- 時刻: `engine/sky.ts` (時刻 → 太陽の方向・空の色・明るさ、星・月・雲・稲妻のオブジェクト)。
+  `SceneEnvironment` が太陽光 (DirectionalLight) の向き・色・明るさをデータを変えずに上書きする
+  (元の値は `light.userData.baseIntensity / baseColor`)。Play 中の時刻は `GameRuntime.setHour()` で進め、
+  空の画像 (PMREM) の作り直しは画質に応じて間引く
+- 画面の効果: `engine/PostProcessor.ts` (EffectComposer を動的 import)。`EngineRenderer.setPost()` で
+  描画する側 (エディタ / ランタイム) が毎フレーム設定し、低画質では使わない。
+  順番は 描画 → 被写界深度 → ブルーム → OutputPass (トーンマッピング・sRGB) → 色あい・周辺減光
+
+### デバッグ・カメラ・タイムライン (Phase 8)
+
+- ログ: `core/logger.ts`。エントリーに `entityId` (原因のオブジェクト) と通し番号を持ち、未読のエラー数を数える。
+  ランタイムのエラー (`GameRuntime.report`) はオブジェクトの ID 付きで記録し、コンソール (`ui/DebugConsole.ts`) から選べる
+- 性能: `engine/PerfMonitor.ts` (requestAnimationFrame を数える。エディタは変化があるときだけ描画するため)、
+  描画の情報は `renderer.info`
+- カメラ: エディタは `EditorViewport.setPreviewCamera()` でシーンのカメラの視点を表示 (タップ・カメラ操作で戻る)。
+  ランタイムは `GameRuntime.switchCamera()` と `BlendCameraRig` (指定秒数でなめらかに切り替え、その後は対象のカメラに追従)
+- タイムライン: `core/timeline.ts` (データ = 時刻付きのイベントの動作)、`runtime/TimelinePlayer.ts` (時刻になった動作を
+  `EventSystem.runActions()` で実行するので、待つ・会話もイベントと同じ)。会話などでゲームが止まっている間は進まない。
+  再生中はプレイヤーの入力を止め (`GameRuntime.input` が空の入力を返す)、GameUI に黒帯とスキップボタンを出す
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -98,7 +179,7 @@ registerComponent({
 
 ## 保存 (storage/, app/ProjectService.ts)
 
-- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (Phase 5 用に予約)
+- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (読み込んだファイルの本体)
 - IndexedDB が使えなければ localStorage、それも無理ならメモリ (警告を表示)
 - 変更の 2.5 秒後に自動保存。タブが裏に回ったとき (`visibilitychange` / `pagehide`) にも保存
 - エディタ設定 (グリッド・スナップなど) はプロジェクトとは別に localStorage に保存
@@ -114,9 +195,4 @@ registerComponent({
 
 | フェーズ | 追加場所 |
 | --- | --- |
-| マテリアル・環境 | `MaterialData.preset` / `EnvironmentData` の拡張、`SceneBuilder` の生成処理 |
-| 物理 | コンポーネント (Rigidbody / Collider / Trigger) + `GameRuntime` に物理ステップ |
-| プレイヤー・UI・音 | コンポーネント + ランタイム用 UI レイヤー (`RuntimeInput` のオーバーレイ) |
-| イベント | `SceneData` にイベント定義、ランタイムに条件評価器 |
-| アセット・Prefab | `ProjectData.assets / prefabs` と IndexedDB の `assets` ストア |
 | 書き出し | `runtime/` のみを含むプレイヤー用エントリーポイント + ZIP 生成 |

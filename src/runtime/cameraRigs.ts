@@ -28,22 +28,103 @@ export class GameCameraRig implements CameraRig {
   }
 }
 
+/**
+ * 別のカメラへなめらかに切り替える (カットシーン・イベントの「カメラを切り替える」)。
+ * 切り替え終わった後は、そのカメラの動き (アニメーションなど) についていく
+ */
+export class BlendCameraRig implements CameraRig {
+  readonly camera: PerspectiveCamera;
+  private t = 0;
+  private readonly fromPos: Vector3;
+  private readonly fromQuat: Quaternion;
+  private readonly fromFov: number;
+
+  constructor(
+    from: { position: Vector3; quaternion: Quaternion; fov?: number },
+    private target: PerspectiveCamera,
+    private seconds: number,
+  ) {
+    this.camera = new PerspectiveCamera(target.fov, target.aspect, target.near, target.far);
+    this.fromPos = from.position.clone();
+    this.fromQuat = from.quaternion.clone();
+    this.fromFov = from.fov ?? target.fov;
+    this.apply(0);
+  }
+
+  get done(): boolean {
+    return this.t >= 1;
+  }
+
+  private apply(k: number): void {
+    const t = this.target;
+    t.updateWorldMatrix(true, false);
+    const p = new Vector3();
+    const q = new Quaternion();
+    t.matrixWorld.decompose(p, q, new Vector3());
+    const e = k * k * (3 - 2 * k);
+    this.camera.position.lerpVectors(this.fromPos, p, e);
+    this.camera.quaternion.slerpQuaternions(this.fromQuat, q, e);
+    this.camera.fov = this.fromFov + (t.fov - this.fromFov) * e;
+    this.camera.near = t.near;
+    this.camera.far = t.far;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld(true);
+  }
+
+  update(dt: number): void {
+    this.t = Math.min(1, this.t + dt / Math.max(0.01, this.seconds));
+    this.apply(this.t);
+  }
+
+  setAspect(aspect: number): void {
+    this.camera.aspect = aspect;
+    this.target.aspect = aspect;
+    this.target.updateProjectionMatrix();
+    this.camera.updateProjectionMatrix();
+  }
+}
+
 const WALK_SPEED = 3;
 const RUN_SPEED = 6.5;
 const LOOK_SENSITIVITY = 0.25;
+
+/** 一人称で追いかける対象 (プレイヤー操作コンポーネントが動かす) */
+export interface FollowTarget {
+  object: Object3D;
+  /** 目の高さ (オブジェクトの中心からの高さ) */
+  eyeHeight: number;
+}
 
 export class FirstPersonRig implements CameraRig {
   readonly camera: PerspectiveCamera;
   private yaw = 0;
   private pitch = 0;
 
-  constructor(start: { position: Vector3; quaternion: Quaternion; fov?: number }) {
+  constructor(
+    start: { position: Vector3; quaternion: Quaternion; fov?: number },
+    private follow: FollowTarget | null = null,
+  ) {
     this.camera = new PerspectiveCamera(start.fov ?? 70, 1, 0.05, 1000);
     this.camera.position.copy(start.position);
     const e = new Euler().setFromQuaternion(start.quaternion, 'YXZ');
     this.yaw = MathUtils.radToDeg(e.y);
-    this.pitch = MathUtils.radToDeg(e.x);
+    this.pitch = follow ? 0 : MathUtils.radToDeg(e.x);
+    if (follow) {
+      // プレイヤーの向いている方向から始める
+      const q = new Quaternion();
+      follow.object.getWorldQuaternion(q);
+      const fwd = new Vector3(0, 0, 1).applyQuaternion(q);
+      this.yaw = MathUtils.radToDeg(Math.atan2(-fwd.x, -fwd.z)) + 180;
+      this.placeAtTarget();
+    }
     this.apply();
+  }
+
+  private placeAtTarget(): void {
+    if (!this.follow) return;
+    this.follow.object.updateWorldMatrix(true, false);
+    this.camera.position.setFromMatrixPosition(this.follow.object.matrixWorld);
+    this.camera.position.y += this.follow.eyeHeight;
   }
 
   private apply(): void {
@@ -55,6 +136,12 @@ export class FirstPersonRig implements CameraRig {
     this.yaw -= look.x * LOOK_SENSITIVITY;
     this.pitch = MathUtils.clamp(this.pitch - look.y * LOOK_SENSITIVITY, -85, 85);
     this.apply();
+    if (this.follow) {
+      // 移動はプレイヤー操作コンポーネントが行う。カメラは目の位置に付いていく
+      this.placeAtTarget();
+      input.consumeZoom();
+      return;
+    }
     const speed = input.running ? RUN_SPEED : WALK_SPEED;
     const yaw = MathUtils.degToRad(this.yaw);
     // 水平方向のみ移動 (高さは一定)
@@ -78,9 +165,13 @@ export class ThirdPersonRig implements CameraRig {
   private distance = 7;
   private focus = new Vector3();
 
+  /**
+   * @param controlTarget true ならジョイスティックで対象を動かす (プレイヤー操作コンポーネントが無い場合)
+   */
   constructor(
     private target: Object3D,
     startYawDeg = 0,
+    private controlTarget = true,
   ) {
     this.camera = new PerspectiveCamera(60, 1, 0.05, 1000);
     this.yaw = startYawDeg;
@@ -107,7 +198,7 @@ export class ThirdPersonRig implements CameraRig {
     const mx = input.move.x;
     const my = input.move.y;
     const amount = Math.hypot(mx, my);
-    if (amount > 0.01) {
+    if (this.controlTarget && amount > 0.01) {
       const speed = input.running ? RUN_SPEED : WALK_SPEED;
       const yaw = MathUtils.degToRad(this.yaw);
       // カメラの向きを基準に移動方向を決める

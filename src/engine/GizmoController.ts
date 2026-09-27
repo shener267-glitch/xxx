@@ -82,15 +82,24 @@ export class GizmoController {
     const model = this.editor.scene;
     return model.topLevel(this.editor.selection.ids).filter((id) => {
       const e = model.get(id);
-      return e && !e.locked && this.bridge.get(id);
+      return e && !e.locked && e.kind !== 'ui' && this.bridge.get(id);
     });
+  }
+
+  /** 地形ブラシなどの間はギズモを隠す */
+  private suspended = false;
+
+  setEnabled(on: boolean): void {
+    if (this.suspended === !on) return;
+    this.suspended = !on;
+    this.refresh();
   }
 
   refresh(): void {
     if (this.drag) return;
     const s = this.editor.settings;
     const tool = this.editor.tool;
-    const ids = this.editor.mode === 'edit' && tool !== 'select' ? this.editableSelection() : [];
+    const ids = this.editor.mode === 'edit' && tool !== 'select' && !this.suspended ? this.editableSelection() : [];
     this.attachedIds = ids;
     const c = this.controls;
     c.size = s.gizmoSize;

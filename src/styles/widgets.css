@@ -720,3 +720,12 @@
 .action-item:active:not(:disabled) {
   background: var(--panel-2);
 }
+
+.text-input.textarea {
+  height: auto;
+  min-height: 76px;
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+}

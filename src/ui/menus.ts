@@ -8,6 +8,8 @@ import type { AppContext } from './context';
 import { h } from './dom';
 import { icon } from './icons';
 import type { ActionItem } from './overlays';
+import { groundUnder, makePrefab, openMassPlace } from './assetDialogs';
+import { clone } from '../core/util';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './overlays';
 
 /**
@@ -20,15 +22,19 @@ import { actionSheet, confirmDialog, openModal, promptDialog, toast } from './ov
 
 const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
   shape: '3D オブジェクト',
+  world: '地形・水',
   camera: 'カメラ',
   light: 'ライト',
   other: 'その他',
+  game: 'ゲーム用オブジェクト',
+  ui: '画面 UI (文字・ボタン・画像)',
+  effect: 'エフェクト (パーティクル)',
 };
 
 /** カタログのカード一覧 (追加シートと Assets 画面で共用) */
 export function catalogGrid(onPick: (kind: CreateKind) => void, testPrefix = 'add'): HTMLElement {
   const root = h('div', { class: 'catalog' });
-  for (const cat of ['shape', 'light', 'camera', 'other'] as const) {
+  for (const cat of ['shape', 'world', 'game', 'ui', 'effect', 'light', 'camera', 'other'] as const) {
     const items = CATALOG.filter((c) => c.category === cat);
     root.appendChild(h('div', { class: 'catalog-title', text: CATEGORY_LABELS[cat] }));
     root.appendChild(
@@ -61,9 +67,9 @@ export function addFromCatalog(ctx: AppContext, kind: CreateKind, at?: { x: numb
   let position: Vec3 | undefined;
   if (['cube', 'sphere', 'plane', 'cylinder', 'cone', 'capsule'].includes(probe)) {
     const y = probe === 'plane' ? 0 : probe === 'capsule' ? 1 : 0.5;
-    position = [ground[0], y, ground[2]];
+    position = [ground[0], ground[1] + y, ground[2]];
   } else if (kind === 'empty') {
-    position = [ground[0], 0, ground[2]];
+    position = [ground[0], ground[1], ground[2]];
   }
   const id = A.addEntity(ctx.editor, kind, { position });
   if (id) {
@@ -180,6 +186,33 @@ export function openEntityMenu(ctx: AppContext, id: string): void {
       testId: 'menu-lock',
     },
   ];
+  if (!multi && e.kind !== 'ui') {
+    items.push(
+      'separator',
+      { label: '部品 (Prefab) にする', icon: 'duplicate', testId: 'menu-prefab', onSelect: () => void makePrefab(ctx, id) },
+      {
+        label: '並べて置く (大量配置)…',
+        icon: 'grid',
+        testId: 'menu-scatter',
+        onSelect: () => {
+          const template = clone(ed.scene.subtree(id));
+          template[0].transform.position[1] -= groundUnder(ctx, id);
+          openMassPlace(ctx, { name: e.name, template, prefabId: e.prefab });
+        },
+      },
+    );
+    const linked = e.prefab ? ed.project.prefabs.find((p) => p.id === e.prefab) : undefined;
+    if (linked) {
+      items.push({
+        label: `部品「${linked.name}」に反映`,
+        icon: 'upload',
+        testId: 'menu-prefab-update',
+        onSelect: () => {
+          if (A.updatePrefabFromEntity(ed, id, groundUnder(ctx, id))) toast(`部品「${linked.name}」を更新しました`, 'success', 1500);
+        },
+      });
+    }
+  }
   if (!multi && e.kind === 'mesh') {
     const isPlayer = ed.sceneData.playerId === id;
     items.push({
@@ -322,6 +355,12 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
+    {
+      label: logger.unreadErrors > 0 ? `デバッグコンソール (エラー ${logger.unreadErrors})` : 'デバッグコンソール',
+      icon: 'bug',
+      testId: 'menu-console',
+      onSelect: () => ctx.console.show(),
+    },
     { label: '操作ガイド', icon: 'help', onSelect: () => ctx.showHelp() },
     { label: 'Pocket Engine について', icon: 'info', onSelect: () => showAbout() },
   ]);

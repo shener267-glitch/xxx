@@ -1,7 +1,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { getComponentDef } from '../components/registry';
 import type { CreateKind } from './catalog';
-import { catalogItem, createEntity } from './catalog';
+import { catalogItem, createEntity, MATERIAL_PRESETS } from './catalog';
 import {
   AddEntitiesCommand,
   LambdaCommand,
@@ -9,12 +9,17 @@ import {
   SetTransformsCommand,
   SnapshotCommand,
   UpdateEntitiesCommand,
+  ValueCommand,
 } from './commands';
 import type { Editor } from './Editor';
+import type { EventRule, VariableDef } from './events';
+import type { TimelineData } from './types';
+import type { Placement } from './prefabs';
+import { collectSubtree, createPrefab, instantiatePrefab } from './prefabs';
 import { createEmptyScene } from './project';
 import type { SceneModel } from './SceneModel';
 import { matrixToTransform } from './transformMath';
-import type { EntityData, EnvironmentData, SceneData, TransformData, Vec3 } from './types';
+import type { EntityData, EnvironmentData, GameSettings, MaterialPreset, MusicData, PhysicsSettings, PrefabEntry, SceneData, TransformData, Vec3 } from './types';
 import { clone, createId, setPath, uniqueName } from './util';
 
 /**
@@ -409,7 +414,7 @@ export function setComponentEnabled(editor: Editor, id: string, componentId: str
   );
 }
 
-export function setComponentProp(editor: Editor, id: string, componentId: string, key: string, value: unknown, merge = true): boolean {
+export function setComponentProp(editor: Editor, id: string, componentId: string, key: string, value: unknown, merge = true, label = 'コンポーネントの設定を変更'): boolean {
   return updateEntities(
     editor,
     [id],
@@ -417,7 +422,7 @@ export function setComponentProp(editor: Editor, id: string, componentId: string
       const c = x.components.find((cc) => cc.id === componentId);
       if (c) c.props[key] = clone(value);
     },
-    'コンポーネントの設定を変更',
+    label,
     merge ? `comp:${componentId}:${key}` : undefined,
   );
 }
@@ -426,15 +431,107 @@ export function setComponentProp(editor: Editor, id: string, componentId: string
 // シーン設定
 // ------------------------------------------------------------------
 
-export function setEnvironment(editor: Editor, patch: Partial<EnvironmentData>, label = '背景を変更'): boolean {
+export function setEnvironment(editor: Editor, patch: Partial<EnvironmentData>, label = '環境を変更', mergeKey?: string): boolean {
   const scene = editor.sceneData;
   const before = clone(scene.environment);
-  const after = { ...clone(scene.environment), ...patch };
+  const after = { ...clone(scene.environment), ...clone(patch) };
   const apply = (env: EnvironmentData) => {
-    scene.environment = clone(env);
+    scene.environment = env;
     editor.events.emit('environment-changed', undefined);
   };
-  return editor.execute(new LambdaCommand(label, () => apply(after), () => apply(before)));
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `env:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+export function setPhysicsSettings(editor: Editor, patch: Partial<PhysicsSettings>, label = '物理設定を変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.physics);
+  const after = { ...clone(scene.physics), ...clone(patch) };
+  const apply = (v: PhysicsSettings) => {
+    scene.physics = v;
+    editor.events.emit('environment-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `phys:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+export function setMusic(editor: Editor, patch: Partial<MusicData>, label = 'BGM を変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.music);
+  const after = { ...clone(scene.music), ...clone(patch) };
+  const apply = (v: MusicData) => {
+    scene.music = v;
+    editor.events.emit('environment-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `music:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** シーンのイベント一覧を置き換える (イベントエディタの編集はすべてこれを通す) */
+export function setEvents(editor: Editor, events: EventRule[], label = 'イベントを変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.events);
+  const after = clone(events);
+  const apply = (v: EventRule[]) => {
+    scene.events = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `events:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** プロジェクトの変数一覧を置き換える */
+/** シーンのタイムラインを置き換える (Undo 可能) */
+export function setTimelines(editor: Editor, timelines: TimelineData[], label = 'タイムラインを変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.timelines);
+  const after = clone(timelines);
+  const apply = (v: TimelineData[]) => {
+    scene.timelines = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `timelines:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+export function setVariables(editor: Editor, variables: VariableDef[], label = '変数を変更'): boolean {
+  const project = editor.project;
+  const before = clone(project.variables);
+  const after = clone(variables);
+  const apply = (v: VariableDef[]) => {
+    project.variables = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  return editor.execute(new ValueCommand(label, apply, before, after, null));
+}
+
+/** ゲーム全体の設定 (タイトル・制限時間など) を変更する */
+export function setGameSettings(editor: Editor, patch: Partial<GameSettings>, label = 'ゲーム設定を変更', mergeKey?: string): boolean {
+  const project = editor.project;
+  const before = clone(project.game);
+  const after = { ...clone(project.game), ...clone(patch) };
+  const apply = (v: GameSettings) => {
+    project.game = v;
+    editor.events.emit('project-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `game:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
+/** マテリアルのプリセットを適用する (推奨値もまとめて設定し、1回で元に戻せる) */
+export function applyMaterialPreset(editor: Editor, ids: readonly string[], preset: MaterialPreset): boolean {
+  const info = MATERIAL_PRESETS.find((p) => p.preset === preset);
+  const targets = ids.filter((id) => editor.scene.get(id)?.mesh);
+  if (!info || targets.length === 0) return false;
+  return updateEntities(
+    editor,
+    targets,
+    (e) => {
+      Object.assign(e.mesh!.material, clone(info.values), { preset });
+      if (preset === 'water') e.mesh!.castShadow = false;
+    },
+    `マテリアルを「${info.label}」に変更`,
+  );
 }
 
 export function setPlayer(editor: Editor, id: string | null): boolean {
@@ -518,4 +615,119 @@ export function renameProject(editor: Editor, name: string): boolean {
   editor.markDirty();
   editor.events.emit('project-changed', undefined);
   return true;
+}
+
+// ------------------------------------------------------------------
+// アセットから置く・Prefab・大量配置 (Phase 6)
+// ------------------------------------------------------------------
+
+/** 作ったオブジェクト (サブツリー、ルートが先頭) をまとめて追加する。1回の Undo で戻せる */
+export function addEntityTrees(editor: Editor, trees: EntityData[][], label: string, parent: string | null = null): string[] {
+  const model = editor.scene;
+  if (trees.length === 0) return [];
+  const names = model.names();
+  for (const t of trees) {
+    t[0].name = uniqueName(t[0].name, names);
+    names.push(t[0].name);
+  }
+  const par = parent && model.has(parent) ? parent : null;
+  const ids = trees.map((t) => t[0].id);
+  editor.execute(new AddEntitiesCommand(model, trees.map((entities) => ({ entities, parent: par })), label), { select: ids });
+  return ids;
+}
+
+/** プロジェクトの Prefab 一覧を置き換える (Undo 可能) */
+export function setPrefabs(editor: Editor, prefabs: PrefabEntry[], label: string): boolean {
+  const project = editor.project;
+  const before = clone(project.prefabs);
+  const after = clone(prefabs);
+  const apply = (v: PrefabEntry[]) => {
+    project.prefabs = clone(v);
+    editor.events.emit('assets-changed', undefined);
+  };
+  return editor.execute(new ValueCommand(label, apply, before, after, null));
+}
+
+/** 選択中のオブジェクト (と子) から Prefab を作る */
+export function createPrefabFromEntity(editor: Editor, id: string, name?: string, folder = '', groundY = 0): PrefabEntry | null {
+  const model = editor.scene;
+  const e = model.get(id);
+  if (!e) return null;
+  const prefab = createPrefab(model.subtree(id), name ?? e.name, folder, groundY);
+  const names = editor.project.prefabs.map((p) => p.name);
+  prefab.name = uniqueName(prefab.name, names);
+  setPrefabs(editor, [...editor.project.prefabs, prefab], `部品「${prefab.name}」を作成`);
+  // 元のオブジェクトも Prefab とつなげておく
+  updateEntities(editor, [id], (x) => (x.prefab = prefab.id), 'Prefab とつなげる', undefined);
+  return prefab;
+}
+
+/** Prefab を指定の位置に置く */
+export function placePrefab(editor: Editor, prefabId: string, position: Vec3): string | null {
+  const prefab = editor.project.prefabs.find((p) => p.id === prefabId);
+  if (!prefab) return null;
+  const tree = instantiatePrefab(prefab);
+  tree[0].transform.position = [position[0], position[1] + tree[0].transform.position[1], position[2]];
+  return addEntityTrees(editor, [tree], `部品「${prefab.name}」を置く`)[0] ?? null;
+}
+
+/** 置いたオブジェクトの今の状態で Prefab を上書きする */
+export function updatePrefabFromEntity(editor: Editor, entityId: string, groundY = 0): boolean {
+  const e = editor.scene.get(entityId);
+  if (!e?.prefab) return false;
+  const list = clone(editor.project.prefabs);
+  const i = list.findIndex((p) => p.id === e.prefab);
+  if (i < 0) return false;
+  const next = createPrefab(editor.scene.subtree(entityId), list[i].name, list[i].folder, groundY);
+  list[i] = { ...next, id: list[i].id, createdAt: list[i].createdAt, thumb: list[i].thumb };
+  return setPrefabs(editor, list, `部品「${list[i].name}」を更新`);
+}
+
+/**
+ * お手本 (サブツリー) を配置パターンに従って大量に置く。
+ * group = true なら新しい空のオブジェクトの子にまとめる。
+ */
+export function massPlace(
+  editor: Editor,
+  template: EntityData[],
+  placements: Placement[],
+  opts: { group: boolean; groupName: string; center: Vec3; prefabId?: string },
+): string[] {
+  if (template.length === 0 || placements.length === 0) return [];
+  const baseRot = template[0].transform.rotation;
+  const baseScale = template[0].transform.scale;
+  // 地面からの高さ (キューブなら 0.5) を保つ
+  const baseY = template[0].transform.position[1];
+  const trees = placements.map((pl) => {
+    const tree = cloneWithNewIds(template);
+    const r = tree[0];
+    r.parent = null;
+    if (opts.prefabId) r.prefab = opts.prefabId;
+    const y = pl.position[1] + baseY * pl.scale;
+    const pos: Vec3 = opts.group ? [pl.position[0] - opts.center[0], y - opts.center[1], pl.position[2] - opts.center[2]] : [pl.position[0], y, pl.position[2]];
+    r.transform.position = pos;
+    r.transform.rotation = [baseRot[0], (baseRot[1] + pl.rotationY) % 360, baseRot[2]];
+    r.transform.scale = [baseScale[0] * pl.scale, baseScale[1] * pl.scale, baseScale[2] * pl.scale];
+    return tree;
+  });
+  const model = editor.scene;
+  if (!opts.group) return addEntityTrees(editor, trees, `${trees.length}個を配置`);
+  const group = createEntity('empty', opts.groupName);
+  group.name = uniqueName(opts.groupName, model.names());
+  group.transform.position = [...opts.center];
+  const names = model.names();
+  for (const t of trees) {
+    t[0].name = uniqueName(t[0].name, names);
+    names.push(t[0].name);
+    t[0].parent = group.id;
+    group.children.push(t[0].id);
+  }
+  const all = [group, ...trees.flat()];
+  editor.execute(new AddEntitiesCommand(model, [{ entities: all, parent: null }], `${trees.length}個を配置`), { select: [group.id] });
+  return [group.id];
+}
+
+/** Prefab のお手本 (サブツリー) */
+export function prefabTemplate(prefab: PrefabEntry): EntityData[] {
+  return collectSubtree(prefab.entities, prefab.root);
 }

@@ -1,6 +1,10 @@
 import { ACESFilmicToneMapping, PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 import type { Camera, Scene } from 'three';
+import { hasPostEffects } from '../core/catalog';
 import type { QualityLevel } from '../core/settings';
+import type { PostEffectsData } from '../core/types';
+import type { PostOptions } from './PostProcessor';
+import { PostProcessor } from './PostProcessor';
 
 export type ResizeListener = (width: number, height: number) => void;
 
@@ -15,6 +19,13 @@ export class EngineRenderer {
   width = 1;
   height = 1;
   private listeners = new Set<ResizeListener>();
+  /** ポストエフェクト (使うときだけ作る) */
+  post: PostProcessor | null = null;
+  private postData: PostEffectsData | null = null;
+  private postOpts: PostOptions = {};
+  /** 直前の描画でポストエフェクトを使ったか */
+  postActive = false;
+  private readyListeners = new Set<() => void>();
   private observer: ResizeObserver;
   private quality: QualityLevel;
 
@@ -71,7 +82,23 @@ export class EngineRenderer {
     this.width = w;
     this.height = h;
     this.renderer.setSize(w, h, false);
+    this.post?.setSize(w, h, this.renderer.getPixelRatio());
     for (const fn of this.listeners) fn(w, h);
+  }
+
+  /**
+   * ポストエフェクトの設定 (null = 使わない)。描画する側が毎回 (または変わったときに) 設定する。
+   * 低画質では使わない (スマホの負荷を抑える)
+   */
+  setPost(data: PostEffectsData | null, opts: PostOptions = {}): void {
+    this.postData = data;
+    this.postOpts = opts;
+  }
+
+  /** ポストエフェクトの準備ができたとき (再描画のため) */
+  onPostReady(fn: () => void): () => void {
+    this.readyListeners.add(fn);
+    return () => this.readyListeners.delete(fn);
   }
 
   /** 画質に応じて解像度 (ピクセル比) を切り替える。スマホでは描画負荷に直結する */
@@ -87,6 +114,7 @@ export class EngineRenderer {
     const ratio = this.quality === 'low' ? 1 : this.quality === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2.5);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(this.width, this.height, false);
+    this.post?.setSize(this.width, this.height, ratio);
   }
 
   setShadows(on: boolean): void {
@@ -96,6 +124,19 @@ export class EngineRenderer {
   }
 
   render(scene: Scene, camera: Camera): void {
+    const data = this.postData;
+    if (data && this.quality !== 'low' && hasPostEffects(data) && !(this.postOpts.noDof && !data.bloom.enabled && !hasGrade(data))) {
+      if (!this.post) {
+        this.post = new PostProcessor(this.renderer);
+        this.post.setSize(this.width, this.height, this.renderer.getPixelRatio());
+        this.post.onReady = () => this.readyListeners.forEach((fn) => fn());
+      }
+      if (this.post.render(scene, camera, data, this.quality, this.postOpts)) {
+        this.postActive = true;
+        return;
+      }
+    }
+    this.postActive = false;
     this.renderer.render(scene, camera);
   }
 
@@ -121,8 +162,13 @@ export class EngineRenderer {
   }
 
   dispose(): void {
+    this.post?.dispose();
     this.observer.disconnect();
     this.renderer.dispose();
     this.canvas.remove();
   }
+}
+
+function hasGrade(p: PostEffectsData): boolean {
+  return p.vignette > 0.001 || Math.abs(p.saturation) > 0.001 || Math.abs(p.contrast) > 0.001 || Math.abs(p.warmth) > 0.001;
 }

@@ -47,6 +47,15 @@ export class SceneBridge {
     this.invalidate();
   }
 
+  /** すべてのオブジェクトにデータを再適用する (画質変更などで見た目を作り直すとき) */
+  refreshAll(): void {
+    for (const [id, obj] of this.objects) {
+      const e = this.editor.scene.get(id);
+      if (e) this.builder.apply(obj, e);
+    }
+    this.invalidate();
+  }
+
   private add(id: string): void {
     const e = this.editor.scene.get(id);
     if (!e || this.objects.has(id)) return;

@@ -7,9 +7,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
-  DoubleSide,
   Float32BufferAttribute,
-  FrontSide,
   Group,
   HemisphereLight,
   LineBasicMaterial,
@@ -17,7 +15,6 @@ import {
   MathUtils,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
@@ -26,8 +23,12 @@ import {
   SpotLight,
 } from 'three';
 import type { Light, Material } from 'three';
+import type { QualityLevel } from '../core/settings';
 import { safeScale } from '../core/transformMath';
-import type { EntityData, MaterialData, PrimitiveShape } from '../core/types';
+import type { EntityData, PrimitiveShape } from '../core/types';
+import { createMaterial, disposeMaterial, materialSignature, updateMaterial } from './materials';
+import { instantiateModel } from './models';
+import { createTerrainMesh, refreshTerrainMesh, terrainKey } from './terrainMesh';
 
 /**
  * EntityData から Three.js のオブジェクトを生成・更新する。
@@ -68,6 +69,16 @@ export function findEntityObject(o: Object3D | null): EntityObject | null {
 // ------------------------------------------------------------------
 
 const geometryCache = new Map<PrimitiveShape, BufferGeometry>();
+let waterGeometry: BufferGeometry | null = null;
+
+/** 波を表現するための細かく分割した平面 */
+export function getWaterGeometry(): BufferGeometry {
+  if (!waterGeometry) {
+    waterGeometry = new PlaneGeometry(1, 1, 64, 64);
+    waterGeometry.rotateX(-Math.PI / 2);
+  }
+  return waterGeometry;
+}
 
 export function getGeometry(shape: PrimitiveShape): BufferGeometry {
   let g = geometryCache.get(shape);
@@ -202,6 +213,29 @@ function createLightProxy(e: EntityData): { proxy: Object3D; picker: Mesh } {
   return { proxy: g, picker };
 }
 
+/** 3D モデル: 大きさの箱 (読み込み前・見つからないときの目印と、選択用) */
+function createModelProxy(e: EntityData): { proxy: Object3D; picker: Mesh } {
+  const m = e.model!;
+  const [w, h, d] = m.size;
+  const g = new Group();
+  const x = w / 2;
+  const y = h / 2;
+  const z = d / 2;
+  const box = lines([
+    -x, -y, -z, x, -y, -z, x, -y, -z, x, -y, z, x, -y, z, -x, -y, z, -x, -y, z, -x, -y, -z,
+    -x, y, -z, x, y, -z, x, y, -z, x, y, z, x, y, z, -x, y, z, -x, y, z, -x, y, -z,
+    -x, -y, -z, -x, y, -z, x, -y, -z, x, y, -z, x, -y, z, x, y, z, -x, -y, z, -x, y, z,
+  ]);
+  box.position.set(m.center[0], m.center[1], m.center[2]);
+  box.name = '__modelBox';
+  g.add(box);
+  const picker = new Mesh(new BoxGeometry(Math.max(0.05, w), Math.max(0.05, h), Math.max(0.05, d)), pickerMat);
+  picker.position.copy(box.position);
+  picker.userData.ownGeometry = true;
+  g.add(picker);
+  return { proxy: g, picker };
+}
+
 function createEmptyProxy(): { proxy: Object3D; picker: Mesh } {
   const g = new Group();
   const s = 0.3;
@@ -210,39 +244,6 @@ function createEmptyProxy(): { proxy: Object3D; picker: Mesh } {
   picker.userData.ownGeometry = true;
   g.add(picker);
   return { proxy: g, picker };
-}
-
-// ------------------------------------------------------------------
-// マテリアル
-// ------------------------------------------------------------------
-
-function createMaterial(m: MaterialData, shape: PrimitiveShape): Material {
-  const side = shape === 'plane' ? DoubleSide : FrontSide;
-  if (m.preset === 'unlit') {
-    return new MeshBasicMaterial({ side });
-  }
-  return new MeshStandardMaterial({ side });
-}
-
-function updateMaterial(mat: Material, m: MaterialData): void {
-  const transparent = m.opacity < 0.999;
-  if (mat instanceof MeshStandardMaterial) {
-    mat.color.set(m.color);
-    mat.roughness = m.roughness;
-    mat.metalness = m.metalness;
-    mat.emissive.set(m.emissive);
-    mat.emissiveIntensity = m.emissiveIntensity;
-    mat.wireframe = m.wireframe;
-  } else if (mat instanceof MeshBasicMaterial) {
-    mat.color.set(m.color);
-    mat.wireframe = m.wireframe;
-  }
-  if (mat.transparent !== transparent) {
-    mat.transparent = transparent;
-    mat.needsUpdate = true;
-  }
-  mat.opacity = m.opacity;
-  mat.depthWrite = !transparent;
 }
 
 // ------------------------------------------------------------------
@@ -294,6 +295,9 @@ function updateLight(obj: Object3D, e: EntityData): void {
   const light = obj as Light;
   light.color.set(l.color);
   light.intensity = l.intensity;
+  // 時刻 (昼夜) で明るさを変えるときの元の値
+  light.userData.baseIntensity = l.intensity;
+  light.userData.baseColor = l.color;
   if (obj instanceof HemisphereLight) obj.groundColor.set(l.groundColor);
   if (obj instanceof PointLight) {
     obj.distance = l.distance;
@@ -317,14 +321,34 @@ function updateLight(obj: Object3D, e: EntityData): void {
 export interface SceneBuilderOptions {
   /** エディタ用のプロキシ表示を作るか */
   editor: boolean;
-  shadowMapSize?: number;
+  quality?: QualityLevel;
 }
+
+const SHADOW_MAP_SIZE: Record<QualityLevel, number> = { low: 512, medium: 1024, high: 2048 };
 
 export class SceneBuilder {
   private shadowMapSize: number;
+  quality: QualityLevel;
+
+  /** 読み込み中のモデル */
+  private pending = new Set<Promise<unknown>>();
+  /** モデルなど、後から読み込まれた物が表示できるようになったとき */
+  onAsyncLoaded: (() => void) | null = null;
+
+  /** 読み込み中のモデルがすべて終わるまで待つ */
+  async whenLoaded(): Promise<void> {
+    while (this.pending.size > 0) await Promise.all([...this.pending]);
+  }
 
   constructor(private opts: SceneBuilderOptions) {
-    this.shadowMapSize = opts.shadowMapSize ?? 1024;
+    this.quality = opts.quality ?? 'medium';
+    this.shadowMapSize = SHADOW_MAP_SIZE[this.quality];
+  }
+
+  /** 画質を変更する (以後に作り直すマテリアル・影に反映) */
+  setQuality(q: QualityLevel): void {
+    this.quality = q;
+    this.shadowMapSize = SHADOW_MAP_SIZE[q];
   }
 
   create(e: EntityData): EntityObject {
@@ -338,11 +362,15 @@ export class SceneBuilder {
   private signature(e: EntityData): string {
     switch (e.kind) {
       case 'mesh':
-        return `mesh:${e.mesh?.shape}:${e.mesh?.material.preset}`;
+        return `mesh:${e.mesh?.shape}:${e.mesh ? materialSignature(e.mesh.material, e.mesh.shape, { quality: this.quality }) : ''}`;
       case 'light':
-        return `light:${e.light?.type}`;
+        return `light:${e.light?.type}:${e.light?.type === 'directional' || e.light?.type === 'spot' ? this.shadowMapSize : ''}`;
       case 'camera':
         return 'camera';
+      case 'model':
+        return `model:${e.model?.asset ?? ''}`;
+      case 'terrain':
+        return `terrain:${e.terrain?.resolution ?? 0}`;
       default:
         return 'empty';
     }
@@ -375,7 +403,7 @@ export class SceneBuilder {
     }
     if (this.opts.editor) {
       // カメラのプロキシ (視錐台) は画角に依存するため、画角が変わったら作り直す
-      const proxyKey = e.kind === 'camera' ? `camera:${e.camera?.fov}` : sig;
+      const proxyKey = e.kind === 'camera' ? `camera:${e.camera?.fov}` : e.kind === 'model' ? `${sig}:${e.model?.size.join(',')}:${e.model?.center.join(',')}` : sig;
       if (ud.proxyKey !== proxyKey) {
         this.rebuildProxy(obj, e);
         ud.proxyKey = proxyKey;
@@ -395,6 +423,20 @@ export class SceneBuilder {
       content.receiveShadow = e.mesh.receiveShadow;
     } else if (e.kind === 'light' && e.light && content) {
       updateLight(content, e);
+    } else if (e.kind === 'model' && e.model && content) {
+      const m = e.model;
+      content.traverse((o) => {
+        if ((o as Mesh).isMesh) {
+          o.castShadow = m.castShadow;
+          o.receiveShadow = m.receiveShadow;
+        }
+      });
+    } else if (e.kind === 'terrain' && e.terrain && content instanceof Mesh) {
+      const key = terrainKey(e.terrain);
+      if (content.userData.terrainKey !== key) {
+        refreshTerrainMesh(content, e.terrain);
+        content.userData.terrainKey = key;
+      }
     } else if (e.kind === 'camera' && e.camera && content instanceof PerspectiveCamera) {
       content.fov = e.camera.fov;
       content.near = Math.max(0.01, e.camera.near);
@@ -412,13 +454,46 @@ export class SceneBuilder {
     ud.content = null;
 
     if (e.kind === 'mesh' && e.mesh) {
-      const mesh = new Mesh(getGeometry(e.mesh.shape), createMaterial(e.mesh.material, e.mesh.shape));
+      const geometry = e.mesh.material.preset === 'water' && e.mesh.shape === 'plane' ? getWaterGeometry() : getGeometry(e.mesh.shape);
+      const mesh = new Mesh(geometry, createMaterial(e.mesh.material, e.mesh.shape, { quality: this.quality }));
       mesh.userData.ownMaterial = true;
       ud.content = mesh;
     } else if (e.kind === 'light' && e.light) {
       ud.content = createLight(e, this.shadowMapSize);
+    } else if (e.kind === 'terrain' && e.terrain) {
+      const mesh = createTerrainMesh(e.terrain);
+      mesh.userData.terrainKey = terrainKey(e.terrain);
+      ud.content = mesh;
     } else if (e.kind === 'camera' && e.camera) {
       ud.content = new PerspectiveCamera(e.camera.fov, 16 / 9, e.camera.near, e.camera.far);
+    } else if (e.kind === 'model' && e.model?.asset) {
+      // モデルは非同期に読み込む。読み込むまでは空の入れ物を置く
+      const holder = new Group();
+      holder.userData.isModel = true;
+      ud.content = holder;
+      const asset = e.model.asset;
+      const load = instantiateModel(asset).then((inst) => {
+        if (ud.content !== holder) return;
+        if (!inst) {
+          holder.userData.missing = true;
+          return;
+        }
+        holder.add(inst.object);
+        holder.userData.animations = inst.animations;
+        holder.userData.loaded = true;
+        const m = e.model!;
+        holder.traverse((o) => {
+          if ((o as Mesh).isMesh) {
+            o.castShadow = m.castShadow;
+            o.receiveShadow = m.receiveShadow;
+          }
+        });
+        this.updatePickTargets(obj);
+        hideModelBox(obj);
+        this.onAsyncLoaded?.();
+      });
+      this.pending.add(load);
+      void load.finally(() => this.pending.delete(load));
     }
     if (ud.content) {
       ud.content.userData.isContent = true;
@@ -437,6 +512,7 @@ export class SceneBuilder {
     ud.picker = null;
     let made: { proxy: Object3D; picker: Mesh } | null = null;
     if (e.kind === 'camera') made = createCameraProxy(e);
+    else if (e.kind === 'model' && e.model) made = createModelProxy(e);
     else if (e.kind === 'light') made = createLightProxy(e);
     else if (e.kind === 'empty') made = createEmptyProxy();
     if (made) {
@@ -444,6 +520,7 @@ export class SceneBuilder {
       ud.proxy = made.proxy;
       ud.picker = made.picker;
       obj.add(made.proxy);
+      if (ud.content?.userData.loaded) hideModelBox(obj);
     }
     this.updatePickTargets(obj);
   }
@@ -452,6 +529,7 @@ export class SceneBuilder {
     const ud = obj.userData;
     ud.pickTargets = [];
     if (ud.content instanceof Mesh) ud.pickTargets.push(ud.content);
+    else if (ud.content?.userData.isModel) ud.content.traverse((o) => (o as Mesh).isMesh && ud.pickTargets.push(o));
     if (ud.picker) ud.pickTargets.push(ud.picker);
   }
 
@@ -466,15 +544,21 @@ export class SceneBuilder {
   }
 }
 
+/** 読み込めたモデルは目印の箱を隠す (選択用の箱は残す) */
+function hideModelBox(obj: EntityObject): void {
+  const box = obj.userData.proxy?.getObjectByName('__modelBox');
+  if (box) box.visible = false;
+}
+
 /** 個別に作ったジオメトリ・マテリアル・シャドウマップを解放する (共有物は解放しない) */
 export function disposeObject(root: Object3D): void {
   root.traverse((o) => {
     if ((o as Light).isLight) (o as Light).dispose();
-    if (o instanceof Mesh || o instanceof LineSegments) {
+    if ((o instanceof Mesh || o instanceof LineSegments) && !o.userData.sharedModel) {
       if (o.userData.ownGeometry) o.geometry.dispose();
       if (o.userData.ownMaterial || o instanceof LineSegments) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) if (m !== proxyLineMat && m !== pickerMat && m !== proxyGrayMat) m.dispose();
+        const mats = (Array.isArray(o.material) ? o.material : [o.material]) as Material[];
+        for (const m of mats) if (m !== proxyLineMat && m !== pickerMat && m !== proxyGrayMat) disposeMaterial(m);
       }
     }
   });
