@@ -273,7 +273,16 @@ export async function openSection(page: Page, testId: string): Promise<void> {
 export async function closeSheet(page: Page): Promise<void> {
   await stableBox(page, 'sheet-close');
   await page.getByTestId('sheet-close').tap();
+  await waitSheetClosed(page);
+}
+
+/**
+ * シートが閉じ終わるまで待つ。data-state はすぐに変わるが、下へ動くアニメーションの途中で
+ * 3D ビューをタップするとシートに当たってしまうため、位置が止まるまで待つ
+ */
+export async function waitSheetClosed(page: Page): Promise<void> {
   await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
+  await stableBox(page, 'sheet');
 }
 
 export const gameState = (page: Page) =>

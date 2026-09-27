@@ -1,21 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  emptyGroundPoint,
-  emptyPoint,
-  enterNumber,
-  entities,
-  entity,
-  entityByName,
-  evalApp,
-  longPress,
-  openApp,
-  reloadApp,
-  screenPos,
-  selection,
-  stableBox,
-  touchDrag,
-  twoFinger,
-} from './helpers';
+import { emptyGroundPoint, emptyPoint, enterNumber, entities, entity, entityByName, evalApp, longPress, openApp, reloadApp, screenPos, selection, stableBox, touchDrag, twoFinger, waitSheetClosed } from './helpers';
 
 /**
  * Phase 1 の受け入れテスト (スマートフォン縦画面・タッチ操作)。
@@ -414,7 +398,7 @@ test('10. スマホ縦画面のレイアウトとタッチ操作', async ({ page
   await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'full');
   const hb2 = await stableBox(page, 'sheet-handle');
   await touchDrag(page, { x: hb2.x + 40, y: hb2.y + 8 }, { x: hb2.x + 40, y: hb2.y + 700 });
-  await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
+  await waitSheetClosed(page);
 
   // 1本指ドラッグ (何もない所) → カメラ回転
   const cam0 = await evalApp(page, (app) => app.viewport.camera.getState());
