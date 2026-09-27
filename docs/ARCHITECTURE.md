@@ -147,6 +147,18 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
   描画する側 (エディタ / ランタイム) が毎フレーム設定し、低画質では使わない。
   順番は 描画 → 被写界深度 → ブルーム → OutputPass (トーンマッピング・sRGB) → 色あい・周辺減光
 
+### デバッグ・カメラ・タイムライン (Phase 8)
+
+- ログ: `core/logger.ts`。エントリーに `entityId` (原因のオブジェクト) と通し番号を持ち、未読のエラー数を数える。
+  ランタイムのエラー (`GameRuntime.report`) はオブジェクトの ID 付きで記録し、コンソール (`ui/DebugConsole.ts`) から選べる
+- 性能: `engine/PerfMonitor.ts` (requestAnimationFrame を数える。エディタは変化があるときだけ描画するため)、
+  描画の情報は `renderer.info`
+- カメラ: エディタは `EditorViewport.setPreviewCamera()` でシーンのカメラの視点を表示 (タップ・カメラ操作で戻る)。
+  ランタイムは `GameRuntime.switchCamera()` と `BlendCameraRig` (指定秒数でなめらかに切り替え、その後は対象のカメラに追従)
+- タイムライン: `core/timeline.ts` (データ = 時刻付きのイベントの動作)、`runtime/TimelinePlayer.ts` (時刻になった動作を
+  `EventSystem.runActions()` で実行するので、待つ・会話もイベントと同じ)。会話などでゲームが止まっている間は進まない。
+  再生中はプレイヤーの入力を止め (`GameRuntime.input` が空の入力を返す)、GameUI に黒帯とスキップボタンを出す
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
