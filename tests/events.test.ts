@@ -84,6 +84,12 @@ class FakeHost implements EventHost {
   setWeather(type: string, lightning: boolean) {
     this.calls.push(`weather:${type}:${lightning}`);
   }
+  switchCamera(id: string | null, seconds: number) {
+    this.calls.push(`camera:${id}:${seconds}`);
+  }
+  playTimeline(id: string) {
+    this.calls.push(`timeline:${id}`);
+  }
   playAnimation(id: string, clip: string) {
     this.calls.push(`anim:${id}:${clip}`);
   }

@@ -25,6 +25,7 @@ import { PlayHUD } from './PlayHUD';
 import { openProjectsModal } from './ProjectsModal';
 import { installShortcuts } from './shortcuts';
 import { ToolBar } from './ToolBar';
+import { DebugConsole } from './DebugConsole';
 import { TerrainBrushBar } from './TerrainBrushBar';
 import { TopBar } from './TopBar';
 import { UIPreview } from './UIPreview';
@@ -45,6 +46,7 @@ export class App implements AppContext {
   readonly assets: AssetService;
   readonly play: PlayController;
   readonly sheet: BottomSheet;
+  readonly console: DebugConsole;
   readonly root: HTMLElement;
   readonly uiPreview: UIPreview;
 
@@ -91,6 +93,7 @@ export class App implements AppContext {
     this.play = new PlayController(ed, this.viewport, runtimeOverlay);
     this.sheet = new BottomSheet(this.root, main);
 
+    this.console = new DebugConsole(this);
     const topbar = new TopBar(this);
     const toolbar = new ToolBar(this);
     const overlay = new ViewportOverlay(this);
@@ -106,7 +109,7 @@ export class App implements AppContext {
     this.sheet.addPanel('assets', assetsPanel.el);
     this.sheet.addPanel('settings', new SettingsPanel(this).el);
 
-    this.root.append(topbar.el, main, toolbar.el, this.sheet.tabbar);
+    this.root.append(topbar.el, main, toolbar.el, this.sheet.tabbar, this.console.el);
 
     // エディタ設定は端末に保存
     ed.events.on('settings-changed', () => saveSettings(ed.settings));

@@ -8,6 +8,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  PerspectiveCamera,
   Quaternion,
   Ray,
   Raycaster,
@@ -16,7 +17,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { BufferGeometry } from 'three';
+import type { BufferGeometry, Camera } from 'three';
 import type { LineBasicMaterial, Object3D } from 'three';
 import type { Editor } from '../core/Editor';
 import type { Vec3 } from '../core/types';
@@ -71,6 +72,9 @@ export class EditorViewport {
   private raycaster = new Raycaster();
   private listeners = new Set<() => void>();
   private brushListeners = new Set<() => void>();
+  /** 「このカメラから見る」のカメラ (null = ふだんの編集カメラ) */
+  previewCameraId: string | null = null;
+  private previewListeners = new Set<() => void>();
   private unsubs: (() => void)[] = [];
 
   constructor(
@@ -110,6 +114,18 @@ export class EditorViewport {
     this.gizmo = new GizmoController(editor, this.bridge, this.camera.camera, this.scene);
     this.gizmo.onChange = () => this.requestRender();
 
+    // 「このカメラから見る」中は、タップやカメラ操作でふだんの視点に戻る
+    const wrapped: ViewportInputHandlers = {
+      ...handlers,
+      onTap: (x, y, additive) => {
+        if (this.previewCameraId) this.setPreviewCamera(null);
+        else handlers.onTap(x, y, additive);
+      },
+      onGesture: (active) => {
+        if (active && this.previewCameraId) this.setPreviewCamera(null);
+        handlers.onGesture?.(active);
+      },
+    };
     this.input = new ViewportInput(
       element,
       editor,
@@ -117,7 +133,7 @@ export class EditorViewport {
       this.gizmo,
       this.bridge,
       (x, y) => this.pick(x, y),
-      handlers,
+      wrapped,
     );
 
     this.terrainBrush = new TerrainBrush(editor, this.bridge, this.scene, (x, y) => this.setRay(x, y).ray.clone(), () => this.requestRender());
@@ -163,6 +179,8 @@ export class EditorViewport {
       ev.on('entity-changed', () => syncEffects()),
       ev.on('scene-loaded', () => syncEffects()),
       ev.on('selection-changed', () => this.clearPoses()),
+      // 別のシーンを開いたら、カメラの視点の表示をやめる
+      ev.on('scene-loaded', () => this.setPreviewCamera(null)),
       onTextureLoaded(() => this.requestRender()),
       engine.onPostReady(() => this.requestRender()),
     );
@@ -178,6 +196,36 @@ export class EditorViewport {
 
   requestRender(): void {
     this.needsRender = true;
+  }
+
+  /** シーンのカメラの視点で表示する (null で戻す) */
+  setPreviewCamera(id: string | null): void {
+    const e = id ? this.editor.scene.get(id) : undefined;
+    this.previewCameraId = e?.kind === 'camera' ? id : null;
+    this.requestRender();
+    for (const fn of this.previewListeners) fn();
+  }
+
+  onPreviewCameraChange(fn: () => void): () => void {
+    this.previewListeners.add(fn);
+    return () => this.previewListeners.delete(fn);
+  }
+
+  /** 表示に使うカメラ (「このカメラから見る」中はシーンのカメラ) */
+  private renderCamera(): Camera {
+    const id = this.previewCameraId;
+    if (id) {
+      const content = this.bridge.get(id)?.userData.content;
+      if (content instanceof PerspectiveCamera && this.editor.scene.get(id)) {
+        content.aspect = this.engine.width / this.engine.height;
+        content.updateProjectionMatrix();
+        content.updateWorldMatrix(true, false);
+        return content;
+      }
+      this.previewCameraId = null;
+      for (const fn of this.previewListeners) fn();
+    }
+    return this.camera.camera;
   }
 
   /** 地形ブラシの状態が変わったとき */
@@ -222,7 +270,13 @@ export class EditorViewport {
     else this.env.applyTime();
     // ポストエフェクトは「エフェクトのプレビュー」が ON のときだけ (被写界深度は Play のみ)
     this.engine.setPost(this.editor.settings.previewEffects ? this.editor.sceneData.environment.post : null, { noDof: true });
-    this.engine.render(this.scene, this.camera.camera);
+    const cam = this.renderCamera();
+    // カメラの視点で見ているときは、ギズモや選択の枠を出さない
+    const previewing = cam !== this.camera.camera;
+    this.gizmo.setEnabled(!previewing && !this.terrainBrush.active);
+    this.colliderGroup.visible = !previewing;
+    this.grid.visible = !previewing && this.editor.settings.showGrid;
+    this.engine.render(this.scene, cam);
     for (const fn of this.listeners) fn();
   }
 

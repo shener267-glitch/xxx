@@ -355,6 +355,12 @@ export function openMainMenu(ctx: AppContext): void {
       },
     },
     'separator',
+    {
+      label: logger.unreadErrors > 0 ? `デバッグコンソール (エラー ${logger.unreadErrors})` : 'デバッグコンソール',
+      icon: 'bug',
+      testId: 'menu-console',
+      onSelect: () => ctx.console.show(),
+    },
     { label: '操作ガイド', icon: 'help', onSelect: () => ctx.showHelp() },
     { label: 'Pocket Engine について', icon: 'info', onSelect: () => showAbout() },
   ]);

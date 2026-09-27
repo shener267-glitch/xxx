@@ -17,6 +17,7 @@ export function createEmptyScene(name: string, withStarterContent = true): Scene
     physics: defaultPhysics(),
     music: defaultMusic(),
     events: [],
+    timelines: [],
   };
   if (!withStarterContent) return scene;
 

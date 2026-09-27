@@ -58,6 +58,11 @@ export class PlayHUD {
         h('div', { class: 'tb-spacer' }),
         button({ icon: 'fullscreen', title: '全画面', class: 'hud-btn', testId: 'play-fullscreen', onClick: () => this.toggleFullscreen() }),
       ),
+      h(
+        'div',
+        { class: 'hud-side' },
+        button({ icon: 'bug', title: 'デバッグコンソール', class: 'hud-btn small', testId: 'play-console', onClick: () => ctx.console.toggle() }),
+      ),
       this.stats,
       h('div', { class: 'paused-label', text: '一時停止中' }),
       this.hint,

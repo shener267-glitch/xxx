@@ -9,6 +9,7 @@ import { button, h, rafThrottle } from '../dom';
 import { icon } from '../icons';
 import { actionSheet, confirmDialog, openModal, promptDialog, toast } from '../overlays';
 import { fieldRow, NumberField, Select, TextArea, TextField, Toggle, Vec3Field } from '../widgets';
+import { TimelineView } from './timelineView';
 
 /**
  * イベントタブ: ノーコードで「いつ」→「もし」→「なら / そうでなければ」を組み立てる。
@@ -26,8 +27,12 @@ export class EventsPanel {
   private list: HTMLElement;
   private header: HTMLElement;
   private schedule = rafThrottle(() => this.render());
+  /** 表示: イベントの一覧 / タイムライン */
+  private mode: 'rules' | 'timelines' = 'rules';
+  private timelines: TimelineView;
 
   constructor(private ctx: AppContext) {
+    this.timelines = new TimelineView(ctx, this);
     this.header = h('div', { class: 'ev-top' });
     this.list = h('div', { class: 'ev-list', attrs: { 'data-testid': 'ev-list' } });
     this.el = h('div', { class: 'panel events-panel', attrs: { 'data-testid': 'events-panel' } }, this.header, this.list);
@@ -58,7 +63,7 @@ export class EventsPanel {
   // 名前の解決 (要約の文章用)
   // ------------------------------------------------------------------
 
-  private get summaryCtx(): SummaryContext {
+  get summaryCtx(): SummaryContext {
     const ed = this.ctx.editor;
     return {
       entityName: (id) => {
@@ -66,6 +71,10 @@ export class EventsPanel {
         return e ? `「${e.name}」` : '(削除されたオブジェクト)';
       },
       sceneName: (id) => ed.findScene(id)?.name ?? '(削除されたシーン)',
+      timelineName: (id) => {
+        const t = ed.sceneData.timelines.find((x) => x.id === id);
+        return t ? `「${t.name}」` : '(タイムライン)';
+      },
       soundName: (src) => {
         if (!src) return 'なし';
         if (isBuiltinSound(src)) return `「${builtinSoundLabel(src)}」`;
@@ -82,7 +91,29 @@ export class EventsPanel {
   render(): void {
     const ed = this.ctx.editor;
     const rules = this.rules;
+    const seg = h(
+      'div',
+      { class: 'segmented ev-mode' },
+      h('button', {
+        class: `seg-btn${this.mode === 'rules' ? ' active' : ''}`,
+        text: `イベント (${rules.length})`,
+        attrs: { type: 'button', 'data-testid': 'ev-mode-rules' },
+        on: { click: () => this.setMode('rules') },
+      }),
+      h('button', {
+        class: `seg-btn${this.mode === 'timelines' ? ' active' : ''}`,
+        text: `タイムライン (${ed.sceneData.timelines.length})`,
+        attrs: { type: 'button', 'data-testid': 'ev-mode-timelines' },
+        on: { click: () => this.setMode('timelines') },
+      }),
+    );
+    if (this.mode === 'timelines') {
+      this.header.replaceChildren(seg);
+      this.timelines.render(this.list);
+      return;
+    }
     this.header.replaceChildren(
+      seg,
       h(
         'div',
         { class: 'panel-intro' },
@@ -109,6 +140,13 @@ export class EventsPanel {
       return;
     }
     rules.forEach((r, i) => this.list.appendChild(this.card(r, i)));
+  }
+
+  private setMode(mode: 'rules' | 'timelines'): void {
+    if (this.mode === mode) return;
+    this.mode = mode;
+    if (mode === 'rules') this.timelines.leave();
+    this.render();
   }
 
   private card(r: EventRule, index: number): HTMLElement {
@@ -233,7 +271,7 @@ export class EventsPanel {
   // ------------------------------------------------------------------
 
   /** 種類の一覧 (グループ見出し付き) から選ぶ */
-  private pickType(kind: BlockKind, onPick: (def: BlockDef) => void): void {
+  pickType(kind: BlockKind, onPick: (def: BlockDef) => void): void {
     const defs = blockDefs(kind);
     const items: Parameters<typeof actionSheet>[1] = [];
     let group = '';
@@ -301,11 +339,11 @@ export class EventsPanel {
     });
   }
 
-  /** ブロックのパラメータを編集するフォーム */
-  private openForm(
+  /** ブロックのパラメータを編集するフォーム (extra はフォームの先頭に足す入力欄。タイムラインの時刻など) */
+  openForm(
     kind: BlockKind,
     block: EventBlock,
-    opts: { onOk(b: EventBlock): void; onDelete?(): void; onMove?(dir: -1 | 1): void; allowTypeChange?: boolean },
+    opts: { onOk(b: EventBlock): void; onDelete?(): void; onMove?(dir: -1 | 1): void; allowTypeChange?: boolean; extra?: HTMLElement[]; title?: string },
   ): void {
     const draft: EventBlock = clone(block);
     const def = getBlockDef(kind, draft.type);
@@ -337,7 +375,7 @@ export class EventsPanel {
             : null,
         )
       : h('p', { class: 'field-note warn', text: `この${KIND_NOUN[kind]} (${draft.type}) は、このバージョンでは使えません。` });
-    body.append(typeRow, preview);
+    body.append(...(opts.extra ?? []), typeRow, preview);
     for (const p of def?.params ?? []) body.appendChild(this.paramField(p, draft, updatePreview));
     updatePreview();
 
@@ -371,7 +409,7 @@ export class EventsPanel {
         opts.onOk(draft);
       },
     });
-    handle = openModal({ title: `${KIND_TITLE[kind]} (${KIND_NOUN[kind]})`, content: body, actions, testId: 'ev-form-modal', className: 'ev-modal' });
+    handle = openModal({ title: opts.title ?? `${KIND_TITLE[kind]} (${KIND_NOUN[kind]})`, content: body, actions, testId: 'ev-form-modal', className: 'ev-modal' });
   }
 
   // ------------------------------------------------------------------
@@ -383,7 +421,7 @@ export class EventsPanel {
     const out: { value: string; label: string }[] = [];
     if (p.allowAny) out.push({ value: '', label: '(どれでも)' });
     else out.push({ value: '', label: '(選んでください)' });
-    if (p.allowPlayer) out.push({ value: 'player', label: '★ プレイヤー' });
+    if (p.allowPlayer) out.push({ value: 'player', label: p.filter === 'camera' ? '★ ふだんのカメラ (元に戻す)' : '★ プレイヤー' });
     const ok = (e: EntityData) => {
       switch (p.filter) {
         case 'ui':
@@ -396,6 +434,8 @@ export class EventsPanel {
           return e.components.some((c) => c.type === 'animation');
         case 'particles':
           return e.components.some((c) => c.type === 'particles');
+        case 'camera':
+          return e.kind === 'camera';
         default:
           return e.kind !== 'ui';
       }
@@ -463,13 +503,19 @@ export class EventsPanel {
       case 'entity':
       case 'sound':
       case 'music':
+      case 'timeline':
       case 'scene': {
         const options =
           p.type === 'entity'
             ? this.entityOptions(p)
             : p.type === 'scene'
               ? [{ value: '', label: '(選んでください)' }, ...this.ctx.editor.project.scenes.map((s) => ({ value: s.id, label: s.name }))]
-              : this.soundOptions(p.type === 'music');
+              : p.type === 'timeline'
+                ? [
+                    { value: '', label: p.allowAny ? '(どれでも)' : '(選んでください)' },
+                    ...this.ctx.editor.sceneData.timelines.map((t) => ({ value: t.id, label: t.name })),
+                  ]
+                : this.soundOptions(p.type === 'music');
         const sel = new Select({ options, title: p.label, testId, onChange: (v) => set(v) });
         const value = String(cur ?? '');
         if (value && !options.some((o) => o.value === value)) {

@@ -14,6 +14,13 @@ export function installShortcuts(ctx: AppContext): void {
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 
+    // ` キーでデバッグコンソール (編集中・Play 中どちらでも)
+    if (!mod && (key === '`' || key === 'f8')) {
+      e.preventDefault();
+      ctx.console.toggle();
+      return;
+    }
+
     if (ed.mode === 'play') {
       if (key === 'escape') {
         e.preventDefault();

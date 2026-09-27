@@ -28,6 +28,62 @@ export class GameCameraRig implements CameraRig {
   }
 }
 
+/**
+ * 別のカメラへなめらかに切り替える (カットシーン・イベントの「カメラを切り替える」)。
+ * 切り替え終わった後は、そのカメラの動き (アニメーションなど) についていく
+ */
+export class BlendCameraRig implements CameraRig {
+  readonly camera: PerspectiveCamera;
+  private t = 0;
+  private readonly fromPos: Vector3;
+  private readonly fromQuat: Quaternion;
+  private readonly fromFov: number;
+
+  constructor(
+    from: { position: Vector3; quaternion: Quaternion; fov?: number },
+    private target: PerspectiveCamera,
+    private seconds: number,
+  ) {
+    this.camera = new PerspectiveCamera(target.fov, target.aspect, target.near, target.far);
+    this.fromPos = from.position.clone();
+    this.fromQuat = from.quaternion.clone();
+    this.fromFov = from.fov ?? target.fov;
+    this.apply(0);
+  }
+
+  get done(): boolean {
+    return this.t >= 1;
+  }
+
+  private apply(k: number): void {
+    const t = this.target;
+    t.updateWorldMatrix(true, false);
+    const p = new Vector3();
+    const q = new Quaternion();
+    t.matrixWorld.decompose(p, q, new Vector3());
+    const e = k * k * (3 - 2 * k);
+    this.camera.position.lerpVectors(this.fromPos, p, e);
+    this.camera.quaternion.slerpQuaternions(this.fromQuat, q, e);
+    this.camera.fov = this.fromFov + (t.fov - this.fromFov) * e;
+    this.camera.near = t.near;
+    this.camera.far = t.far;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld(true);
+  }
+
+  update(dt: number): void {
+    this.t = Math.min(1, this.t + dt / Math.max(0.01, this.seconds));
+    this.apply(this.t);
+  }
+
+  setAspect(aspect: number): void {
+    this.camera.aspect = aspect;
+    this.target.aspect = aspect;
+    this.target.updateProjectionMatrix();
+    this.camera.updateProjectionMatrix();
+  }
+}
+
 const WALK_SPEED = 3;
 const RUN_SPEED = 6.5;
 const LOOK_SENSITIVITY = 0.25;

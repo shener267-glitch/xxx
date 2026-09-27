@@ -47,6 +47,7 @@ import type {
 import { PROJECT_FORMAT, PROJECT_VERSION, SCENE_FORMAT } from './types';
 import { sanitizeRules, sanitizeVariables } from './events';
 import { sanitizeTerrain } from './terrain';
+import { sanitizeTimelines } from './timeline';
 import { clone, createId, normalizeHex } from './util';
 
 /**
@@ -453,6 +454,7 @@ export function sanitizeScene(raw: unknown): SceneData {
     },
     music: sanitizeMusic(raw.music),
     events: sanitizeRules(raw.events),
+    timelines: sanitizeTimelines(raw.timelines),
   };
   repairHierarchy(scene);
   if (scene.playerId && !scene.entities[scene.playerId]) scene.playerId = null;

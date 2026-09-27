@@ -3,6 +3,7 @@ import * as A from '../core/actions';
 import { entityIcon } from '../core/catalog';
 import { createId } from '../core/util';
 import type { ViewPreset } from '../engine/EditorCamera';
+import { logger } from '../core/logger';
 import type { AppContext } from './context';
 import { button, h, setIcon } from './dom';
 import { icon } from './icons';
@@ -132,7 +133,43 @@ export class ViewportOverlay {
 
     this.hint = h('div', { class: 'vp-hint', text: 'タップで選択 ・ ドラッグで回転 ・ 2本指で移動 ・ ピンチでズーム' });
 
-    this.el = h('div', { class: 'viewport-overlay' }, this.axisSvg, rail, this.banner, this.hint, this.contextBar);
+    // エラーが出たら左上に知らせる (タップでコンソール)
+    const errorChip = h('button', {
+      class: 'error-chip',
+      attrs: { type: 'button', 'data-testid': 'error-chip', hidden: '' },
+      on: { click: () => ctx.console.show('log', 'error') },
+    });
+    const updateChip = () => {
+      const n = logger.unreadErrors;
+      errorChip.hidden = n === 0 || ctx.console.isOpen;
+      errorChip.innerHTML = `${icon('alert', 16)}<span>エラー ${n}</span>`;
+    };
+    logger.subscribe(() => updateChip());
+    logger.onClear(() => updateChip());
+    ctx.console.onChange(updateChip);
+
+    // 「このカメラから見る」中の表示
+    const previewText = h('span', { class: 'multi-text' });
+    const previewBanner = h(
+      'div',
+      { class: 'multi-banner camera-banner', attrs: { 'data-testid': 'camera-preview-banner' } },
+      h('span', { html: icon('camera', 18) }),
+      previewText,
+      h('button', {
+        class: 'btn small primary',
+        text: '戻る',
+        attrs: { type: 'button', 'data-testid': 'camera-preview-exit' },
+        on: { click: () => ctx.viewport.setPreviewCamera(null) },
+      }),
+    );
+    const updatePreview = () => {
+      const id = ctx.viewport.previewCameraId;
+      previewBanner.classList.toggle('show', id !== null);
+      previewText.textContent = id ? `カメラ「${ed.scene.get(id)?.name ?? ''}」の視点` : '';
+    };
+    ctx.viewport.onPreviewCameraChange(updatePreview);
+
+    this.el = h('div', { class: 'viewport-overlay' }, this.axisSvg, rail, this.banner, previewBanner, this.hint, this.contextBar, errorChip);
 
     const ev = ed.events;
     ev.on('selection-changed', () => this.updateContext());

@@ -1,7 +1,7 @@
 import { AnimationMixer, Box3, LoopOnce, LoopRepeat, MathUtils, Matrix4, PerspectiveCamera, Quaternion, Ray, Scene, Vector3 } from 'three';
 import type { AnimationAction, AnimationClip } from 'three';
 import type { Object3D } from 'three';
-import type { ComponentInstance, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
+import type { ComponentInstance, GameInput, PlayerControllerHandle, RuntimeAPI } from '../components/registry';
 import { getComponentDef } from '../components/registry';
 import { logger } from '../core/logger';
 import type { PlayCameraMode, QualityLevel } from '../core/settings';
@@ -25,7 +25,8 @@ import { resolveAsset } from '../engine/textures';
 import { AudioEngine } from './AudioEngine';
 import type { AudioVolumes } from './AudioEngine';
 import type { CameraRig } from './cameraRigs';
-import { FirstPersonRig, GameCameraRig, ThirdPersonRig } from './cameraRigs';
+import { BlendCameraRig, FirstPersonRig, GameCameraRig, ThirdPersonRig } from './cameraRigs';
+import { TimelinePlayer } from './TimelinePlayer';
 import type { SaveData } from './GameState';
 import { GameState } from './GameState';
 import { GameUI } from './GameUI';
@@ -165,6 +166,9 @@ export function readSave(key: string | null | undefined): SaveData | null {
 const _box = new Box3();
 const _groundRay = new Ray();
 
+/** カットシーン中の入力 (何も押していない) */
+const LOCKED_INPUT: GameInput = { move: { x: 0, y: 0 }, running: false, consumeJump: () => false, consumeAction: () => false };
+
 /** 夜の時間帯 (19 時〜5 時) */
 export function isNightHour(h: number): boolean {
   return h >= 19 || h < 5;
@@ -224,6 +228,10 @@ export class GameRuntime implements RuntimeAPI {
   private hour = 12;
   /** ノーコードのイベント */
   readonly events: EventSystem;
+  /** タイムライン (カットシーン) */
+  readonly timeline: TimelinePlayer;
+  /** カットシーン中はプレイヤーを操作できない */
+  private inputLocked = false;
 
   constructor(private opts: RuntimeOptions) {
     const scene = opts.project.scenes.find((s) => s.id === opts.sceneId) ?? opts.project.scenes[0];
@@ -273,6 +281,21 @@ export class GameRuntime implements RuntimeAPI {
     opts.overlay.addEventListener('pointerdown', this.unlockAudio, { capture: true });
     this.build();
     this.events = new EventSystem(scene.events ?? [], this.createEventHost());
+    this.timeline = new TimelinePlayer(
+      {
+        runActions: (actions, name) => this.events.runActions(actions, name),
+        switchCamera: (id, seconds) => {
+          this.switchCamera(id, seconds);
+        },
+        setCutscene: (on, o) => {
+          this.inputLocked = on && o.lockPlayer;
+          if (this.inputLocked) this.inputImpl.clearQueued();
+          this.ui.setCutscene(on, o.skippable, o.onSkip);
+        },
+        emit: (event, id) => this.emit(event, id),
+      },
+      scene.timelines ?? [],
+    );
     this.inputImpl.onKeyPress = (key) => {
       if (!this.frozen) this.events.onKey(key);
     };
@@ -406,10 +429,11 @@ export class GameRuntime implements RuntimeAPI {
     }
   }
 
-  private report(message: string, level: 'info' | 'warn' | 'error', entity?: EntityData | string, err?: unknown): void {
+  private report(message: string, level: 'info' | 'warn' | 'error', entity?: EntityData | { id: string; name: string } | string, err?: unknown): void {
     const name = typeof entity === 'string' ? entity : entity?.name;
+    const entityId = typeof entity === 'object' && entity ? entity.id : undefined;
     const source = name ? `Play / ${name}` : 'Play';
-    logger.log(level, message, source, err);
+    logger.log(level, message, source, err, { entityId });
     this.opts.onMessage?.(`${name ? `[${name}] ` : ''}${message}`, level);
   }
 
@@ -449,8 +473,45 @@ export class GameRuntime implements RuntimeAPI {
     return { position: new Vector3(0, 2, 8), quaternion: new Quaternion() };
   }
 
+  /** 切り替えたカメラ (null = ふだんのカメラ) */
+  activeCameraId: string | null = null;
+
+  /**
+   * シーンのカメラに切り替える (seconds 秒かけてなめらかに)。null でふだんのカメラ (プレイヤーのカメラ) に戻す
+   */
+  switchCamera(id: string | null, seconds = 0): boolean {
+    if (id) {
+      const e = this.sceneData.entities[id];
+      const content = this.objects.get(id)?.userData.content;
+      if (!e || e.kind !== 'camera' || !(content instanceof PerspectiveCamera)) return false;
+      const from = this.currentView();
+      this.rig?.dispose?.();
+      this.rig = seconds > 0 ? new BlendCameraRig(from, content, seconds) : new GameCameraRig(content);
+      this.activeCameraId = id;
+      this.cameraMode = 'game';
+      this.inputImpl.setJoystickEnabled(this.controllerId !== null);
+      this.rig.setAspect(this.opts.engine.width / this.opts.engine.height);
+      this.emit('camera', id);
+      return true;
+    }
+    this.activeCameraId = null;
+    this.setCameraMode(this.controllerCamera ?? this.opts.cameraMode);
+    this.emit('camera', '');
+    return true;
+  }
+
+  /** デバッグ用: プレイヤーの HP を満タンにする */
+  debugHeal(): void {
+    const id = this.playerId;
+    const h = id ? this.health.get(id) : undefined;
+    if (!id || !h) return;
+    h.hp = h.maxHp;
+    this.state.setHp(h.hp, h.maxHp);
+  }
+
   setCameraMode(mode: PlayCameraMode): PlayCameraMode {
     let actual = mode;
+    this.activeCameraId = null;
     const player = this.player;
     const controlled = this.controllerId !== null;
     if (mode === 'thirdPerson' && !player) {
@@ -551,7 +612,7 @@ export class GameRuntime implements RuntimeAPI {
         c.instance.onContact(other, began, ev.trigger);
       } catch (err) {
         c.failed = true;
-        this.report(`${c.label}でエラーが発生したため停止しました`, 'error', c.entityName, err);
+        this.report(`${c.label}でエラーが発生したため停止しました`, 'error', { id: c.entityId, name: c.entityName }, err);
       }
     }
     for (const fn of this.contactListeners) fn(ev, began);
@@ -579,7 +640,7 @@ export class GameRuntime implements RuntimeAPI {
         c.instance.start();
       } catch (err) {
         c.failed = true;
-        this.report(`${c.label}の開始時にエラーが発生しました`, 'error', c.entityName, err);
+        this.report(`${c.label}の開始時にエラーが発生しました`, 'error', { id: c.entityId, name: c.entityName }, err);
       }
     }
     if (this.phase === 'playing') this.beginGame(this.opts.continueFromSave === true);
@@ -637,6 +698,7 @@ export class GameRuntime implements RuntimeAPI {
     if (music.source) this.audio.playMusic(music.source, music.volume);
     this.emit('start', '');
     this.events.start();
+    this.timeline.playAutoplay();
   }
 
   private loadSave(): void {
@@ -698,7 +760,7 @@ export class GameRuntime implements RuntimeAPI {
         } catch (err) {
           // 毎フレームエラーを出し続けないよう、そのコンポーネントを停止する
           c.failed = true;
-          this.report(`${c.label}でエラーが発生したため停止しました`, 'error', c.entityName, err);
+          this.report(`${c.label}でエラーが発生したため停止しました`, 'error', { id: c.entityId, name: c.entityName }, err);
         }
       }
       this.physics?.step(dt);
@@ -707,6 +769,7 @@ export class GameRuntime implements RuntimeAPI {
       try {
         // 会話などでこのフレームの途中から止まった場合は、再開してから処理する
         if (!this.frozen) this.events.update(dt);
+        if (!this.frozen) this.timeline.update(dt);
       } catch (err) {
         this.report('イベントの実行中にエラーが発生しました', 'error', undefined, err);
       }
@@ -861,6 +924,12 @@ export class GameRuntime implements RuntimeAPI {
         const h = rt.getController<ParticleHandle>(id, 'particles');
         if (on) h?.play();
         else h?.stop();
+      },
+      switchCamera: (id, seconds) => {
+        rt.switchCamera(id, seconds);
+      },
+      playTimeline: (id) => {
+        if (!rt.timeline.play(id)) rt.report('タイムラインが見つかりません', 'warn');
       },
       getHour: () => rt.getHour(),
       setHour: (hour) => rt.setHour(hour),
@@ -1063,8 +1132,8 @@ export class GameRuntime implements RuntimeAPI {
   // RuntimeAPI
   // ------------------------------------------------------------------
 
-  get input(): RuntimeInput {
-    return this.inputImpl;
+  get input(): GameInput {
+    return this.inputLocked ? LOCKED_INPUT : this.inputImpl;
   }
 
   get gravity(): number {
@@ -1411,6 +1480,7 @@ export class GameRuntime implements RuntimeAPI {
   }
 
   dispose(): void {
+    this.timeline?.stop();
     this.stop();
     this.opts.engine.setPost(null);
     for (const c of this.components) {

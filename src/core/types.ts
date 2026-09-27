@@ -1,4 +1,4 @@
-import type { EventRule, VariableDef } from './events';
+import type { EventBlock, EventRule, VariableDef } from './events';
 
 /**
  * Pocket Engine のデータモデル定義。
@@ -332,6 +332,30 @@ export interface GameSettings {
   gameOverMessage: string;
 }
 
+/** タイムラインの 1 つの動作 (time 秒の時点で action を実行する) */
+export interface TimelineItem {
+  id: string;
+  time: number;
+  action: EventBlock;
+}
+
+/** タイムライン (カットシーン): 決まった時刻に動作 (カメラの切り替え・会話・移動など) を順に実行する */
+export interface TimelineData {
+  id: string;
+  name: string;
+  /** 長さ (秒) */
+  duration: number;
+  /** ゲームが始まったら自動で再生する */
+  autoplay: boolean;
+  /** 再生中はプレイヤーを操作できないようにする */
+  lockPlayer: boolean;
+  /** 「スキップ」ボタンを出す */
+  skippable: boolean;
+  /** 終わったらカメラをふだんの視点に戻す */
+  restoreCamera: boolean;
+  items: TimelineItem[];
+}
+
 export interface SceneData {
   id: string;
   name: string;
@@ -348,6 +372,8 @@ export interface SceneData {
   music: MusicData;
   /** ノーコードのイベント (「いつ」→「もし」→「なら」) */
   events: EventRule[];
+  /** タイムライン (カットシーン) */
+  timelines: TimelineData[];
 }
 
 export type AssetType = 'image' | 'audio' | 'model' | 'font';

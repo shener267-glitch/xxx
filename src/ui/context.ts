@@ -2,6 +2,7 @@ import type { AssetService } from '../app/AssetService';
 import type { PlayController } from '../app/PlayController';
 import type { ProjectService } from '../app/ProjectService';
 import type { Editor } from '../core/Editor';
+import type { DebugConsole } from './DebugConsole';
 import type { EditorViewport } from '../engine/EditorViewport';
 
 export type TabId = 'scene' | 'inspector' | 'events' | 'assets' | 'settings';
@@ -22,4 +23,6 @@ export interface AppContext {
   openMainMenu(): void;
   openProjects(): void;
   showHelp(): void;
+  /** デバッグコンソール */
+  console: DebugConsole;
 }

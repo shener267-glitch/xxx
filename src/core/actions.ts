@@ -13,6 +13,7 @@ import {
 } from './commands';
 import type { Editor } from './Editor';
 import type { EventRule, VariableDef } from './events';
+import type { TimelineData } from './types';
 import type { Placement } from './prefabs';
 import { collectSubtree, createPrefab, instantiatePrefab } from './prefabs';
 import { createEmptyScene } from './project';
@@ -480,6 +481,19 @@ export function setEvents(editor: Editor, events: EventRule[], label = 'イベ�
 }
 
 /** プロジェクトの変数一覧を置き換える */
+/** シーンのタイムラインを置き換える (Undo 可能) */
+export function setTimelines(editor: Editor, timelines: TimelineData[], label = 'タイムラインを変更', mergeKey?: string): boolean {
+  const scene = editor.sceneData;
+  const before = clone(scene.timelines);
+  const after = clone(timelines);
+  const apply = (v: TimelineData[]) => {
+    scene.timelines = clone(v);
+    editor.events.emit('events-changed', undefined);
+  };
+  const cmd = new ValueCommand(label, apply, before, after, mergeKey ? `timelines:${scene.id}:${mergeKey}` : null);
+  return editor.execute(cmd, { mergeWindow: mergeKey ? 1500 : 0 });
+}
+
 export function setVariables(editor: Editor, variables: VariableDef[], label = '変数を変更'): boolean {
   const project = editor.project;
   const before = clone(project.variables);

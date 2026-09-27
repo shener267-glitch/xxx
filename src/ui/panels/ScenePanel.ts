@@ -1,4 +1,5 @@
 import * as A from '../../core/actions';
+import { searchEntities } from '../../core/search';
 import { entityIcon } from '../../core/catalog';
 import type { EntityData } from '../../core/types';
 import type { AppContext } from '../context';
@@ -27,7 +28,7 @@ export class ScenePanel {
     this.sceneLabel = h('span', { class: 'scene-name' });
     this.search = h('input', {
       class: 'search-input',
-      attrs: { type: 'search', placeholder: 'オブジェクトを検索', 'aria-label': 'オブジェクトを検索', 'data-testid': 'scene-search', enterkeyhint: 'search' },
+      attrs: { type: 'search', placeholder: '名前・種類・動作で検索', 'aria-label': 'オブジェクトを検索', 'data-testid': 'scene-search', enterkeyhint: 'search' },
       on: {
         input: () => {
           this.query = this.search.value.trim().toLowerCase();
@@ -116,9 +117,9 @@ export class ScenePanel {
 
     if (this.query) {
       // 検索時は一致したものを親のパス付きで平らに表示
-      const hits = model.ordered().filter((e) => e.name.toLowerCase().includes(this.query));
+      const hits = searchEntities(model.ordered(), this.query);
       if (hits.length === 0) {
-        this.tree.appendChild(h('div', { class: 'empty-state small', text: `「${this.search.value}」に一致するオブジェクトはありません` }));
+        this.tree.appendChild(h('div', { class: 'empty-state small', text: `「${this.search.value}」に一致するオブジェクトはありません (名前・種類・動作・タグで探せます)` }));
       }
       for (const e of hits) {
         const path = model
@@ -222,6 +223,8 @@ export class ScenePanel {
           click: (ev) => {
             const additive = ev.shiftKey || ev.ctrlKey || ev.metaKey;
             ed.select(e.id, additive);
+            // 検索結果から選んだら、そのオブジェクトにカメラを向ける
+            if (this.query && !additive) ed.requestFocus([e.id]);
           },
           dblclick: (ev) => {
             // 目・鍵などのボタンを素早く2回押した場合は名前変更にしない

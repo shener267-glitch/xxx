@@ -90,6 +90,7 @@ export class GizmoController {
   private suspended = false;
 
   setEnabled(on: boolean): void {
+    if (this.suspended === !on) return;
     this.suspended = !on;
     this.refresh();
   }

@@ -26,9 +26,11 @@ export type ParamType =
   | 'variable'
   /** アニメーションの名前 (シーン内のアニメーションから選ぶ) */
   | 'clip'
+  /** シーンのタイムライン (ID) */
+  | 'timeline'
   | 'vec3';
 
-export type EntityFilter = 'any' | 'ui' | 'button' | 'object' | 'animation' | 'particles';
+export type EntityFilter = 'any' | 'ui' | 'button' | 'object' | 'animation' | 'particles' | 'camera';
 
 export interface ParamDef {
   key: string;
@@ -82,6 +84,7 @@ export interface SummaryContext {
   entityName(id: string): string;
   sceneName(id: string): string;
   soundName(source: string): string;
+  timelineName?(id: string): string;
 }
 
 export interface BlockDef {
@@ -160,6 +163,15 @@ const TRIGGERS: BlockDef[] = [
     group: '時間',
     params: [num('seconds', '時間', 3, { min: 0, max: 36000, step: 0.5, unit: '秒' })],
     summary: (p) => `始まってから${n(p.seconds, 3)}秒たったとき`,
+  },
+  {
+    type: 'timelineEnd',
+    kind: 'trigger',
+    label: 'タイムラインが終わったとき',
+    icon: 'film',
+    group: 'タイムライン',
+    params: [{ key: 'timeline', label: 'タイムライン', type: 'timeline', default: '', allowAny: true }],
+    summary: (p, c) => `${s(p.timeline) ? (c.timelineName?.(s(p.timeline)) ?? 'タイムライン') : 'タイムライン'}が終わったとき`,
   },
   { type: 'morning', kind: 'trigger', label: '朝になったとき', icon: 'sun', group: '時間', params: [], summary: () => '朝になったとき (時刻が 5 時)' },
   { type: 'night', kind: 'trigger', label: '夜になったとき', icon: 'moon', group: '時間', params: [], summary: () => '夜になったとき (時刻が 19 時)' },
@@ -448,6 +460,28 @@ const ACTIONS: BlockDef[] = [
     summary: (p, c) => `効果音 ${c.soundName(s(p.sound))} を鳴らす`,
   },
   {
+    type: 'timeline',
+    kind: 'action',
+    label: 'タイムラインを再生',
+    icon: 'film',
+    group: 'カメラ',
+    params: [{ key: 'timeline', label: 'タイムライン', type: 'timeline', default: '' }],
+    summary: (p, c) => `${c.timelineName?.(s(p.timeline)) ?? 'タイムライン'}を再生`,
+  },
+  {
+    type: 'camera',
+    kind: 'action',
+    label: 'カメラを切り替える',
+    icon: 'camera',
+    group: 'カメラ',
+    params: [
+      ent('target', 'カメラ', { filter: 'camera', allowPlayer: true }),
+      num('seconds', '切り替える時間', 1, { min: 0, max: 30, step: 0.5, unit: '秒', hint: '0 = すぐに切り替える' }),
+    ],
+    summary: (p, c) =>
+      s(p.target) === 'player' ? 'カメラをふだんの視点に戻す' : `カメラを${who(c, p.target, '(未選択)')}に切り替える${n(p.seconds, 1) > 0 ? ` (${n(p.seconds, 1)}秒で)` : ''}`,
+  },
+  {
     type: 'setTime',
     kind: 'action',
     label: '時刻を変える',
@@ -679,7 +713,7 @@ export function missingParam(kind: BlockKind, block: EventBlock): string | null 
     const v = block.params[p.key];
     const empty = v === '' || v === null || v === undefined;
     if (!empty) continue;
-    if ((p.type === 'entity' && !p.allowAny) || p.type === 'scene' || p.type === 'variable') return p.label;
+    if ((p.type === 'entity' && !p.allowAny) || p.type === 'scene' || p.type === 'variable' || (p.type === 'timeline' && !p.allowAny)) return p.label;
     if (p.type === 'clip' && block.params.mode !== 'stop') return p.label;
   }
   return null;

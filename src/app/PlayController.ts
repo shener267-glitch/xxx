@@ -128,7 +128,7 @@ export class PlayController {
   }
 
   /** Play 中のシーン切り替え (スコア・持ち物・変数などは引き継ぐ) */
-  private changeScene(sceneId: string): void {
+  changeScene(sceneId: string): void {
     const old = this.runtime;
     if (!old || !this.session) return;
     const carry = old.carryOverState();

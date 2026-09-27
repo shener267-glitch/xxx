@@ -35,6 +35,10 @@ export interface EventHost {
   stopAnimation(entityId: string): void;
   spawnEffect(preset: string, atId: string, scale: number): void;
   setParticles(entityId: string, on: boolean): void;
+  /** タイムラインを再生する */
+  playTimeline(id: string): void;
+  /** カメラを切り替える (null = ふだんのカメラ) */
+  switchCamera(entityId: string | null, seconds: number): void;
   /** 今の時刻 (0〜24) */
   getHour(): number;
   setHour(hour: number): void;
@@ -202,6 +206,8 @@ export class EventSystem {
         return ev.event === 'jump';
       case 'night':
         return ev.event === 'night';
+      case 'timelineEnd':
+        return ev.event === 'timeline-end' && (!str(t.params.timeline) || str(t.params.timeline) === ev.entityId);
       case 'morning':
         return ev.event === 'morning';
       case 'key':
@@ -273,6 +279,13 @@ export class EventSystem {
   // ------------------------------------------------------------------
   // 動作
   // ------------------------------------------------------------------
+
+  /** 動作を順に実行する (タイムラインから使う) */
+  runActions(actions: EventBlock[], name: string): void {
+    if (actions.length === 0) return;
+    const rule: EventRule = { id: `run:${name}`, name, enabled: true, once: false, trigger: { type: 'start', params: {} }, conditions: [], actions, elseActions: [] };
+    this.run(rule, actions, false);
+  }
 
   private fire(r: EventRule): void {
     if (this.spent.has(r.id)) return;
@@ -380,6 +393,14 @@ export class EventSystem {
       case 'setTime':
         h.setHour(num(p.hour, 18));
         break;
+      case 'timeline':
+        h.playTimeline(str(p.timeline));
+        break;
+      case 'camera': {
+        const t = str(p.target);
+        h.switchCamera(t === 'player' || !t ? null : this.resolve(t), Math.max(0, num(p.seconds, 1)));
+        break;
+      }
       case 'weather': {
         const w = str(p.weather);
         h.setWeather(w === 'storm' ? 'rain' : w === 'rain' || w === 'snow' ? w : 'none', w === 'storm');

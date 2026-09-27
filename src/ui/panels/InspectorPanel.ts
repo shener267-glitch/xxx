@@ -793,7 +793,18 @@ export class InspectorPanel {
               toast('カメラを現在の視点に合わせました', 'success', 1400);
             },
           }),
+          button({
+            icon: 'eye',
+            label: 'このカメラから見る',
+            class: 'secondary',
+            testId: 'insp-camera-preview',
+            onClick: () => {
+              this.ctx.viewport.setPreviewCamera(single.id);
+              this.ctx.closeSheet();
+            },
+          }),
         ),
+        h('p', { class: 'field-note', text: 'カメラを何台も置いて、イベントの「カメラを切り替える」やタイムラインで切り替えられます。' }),
       );
     }
     return this.section('カメラ', 'camera', rows);

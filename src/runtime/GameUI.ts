@@ -462,6 +462,29 @@ export class GameUI {
     this.finishDialog();
   }
 
+  private skipBtn: HTMLButtonElement | null = null;
+
+  /** カットシーン (タイムライン) の表示: 上下の黒帯・操作ボタンを隠す・スキップボタン */
+  setCutscene(on: boolean, skippable: boolean, onSkip: () => void): void {
+    this.el.classList.toggle('cutscene', on);
+    this.skipBtn?.remove();
+    this.skipBtn = null;
+    if (on && skippable) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'timeline-skip';
+      b.textContent = 'スキップ ▶▶';
+      b.dataset.testid = 'timeline-skip';
+      b.dataset.interactive = '';
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onSkip();
+      });
+      this.el.appendChild(b);
+      this.skipBtn = b;
+    }
+  }
+
   /** 会話・画面の表示中は操作ボタンを隠す */
   private syncBusy(): void {
     this.el.classList.toggle('busy', this.dialog !== null || this.screen !== null);
