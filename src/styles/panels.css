@@ -1991,3 +1991,165 @@ body.dragging-asset .app .sheet {
 .tl-item-icon {
   color: var(--text-2);
 }
+
+/* ------------------------------------------------------------------
+ * データの管理 (バックアップ・保存領域)
+ * ------------------------------------------------------------------ */
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.backup-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+}
+.backup-icon {
+  grid-row: span 2;
+  color: var(--accent-2);
+}
+.backup-when {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.backup-sub {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.storage-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.storage-summary .btn {
+  align-self: flex-start;
+}
+.storage-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.storage-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.storage-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+/* 他のプロジェクトから取り込む・シーンの管理 */
+.ifp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ifp-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.ifp-row input {
+  width: 22px;
+  height: 22px;
+}
+.ifp-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  color: var(--text-2);
+}
+.ifp-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ifp-name small {
+  color: var(--text-2);
+}
+.scene-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.scene-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 2px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.scene-item.current {
+  border-color: var(--accent);
+}
+.scene-item-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  min-width: 0;
+}
+.scene-item-num {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--panel-3);
+  font-size: 12px;
+}
+.scene-item-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.scene-item-body small {
+  color: var(--text-2);
+}
+.tag.accent {
+  background: var(--accent-bg);
+  color: var(--accent-2);
+}

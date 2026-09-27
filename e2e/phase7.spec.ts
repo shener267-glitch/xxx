@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { closeSheet, enterNumber, evalApp, openApp, openSection } from './helpers';
+import { closeSheet, enterNumber, evalApp, openApp, openSection, waitSheetClosed } from './helpers';
 
 /**
  * Phase 7: 地形・昼夜・空・雲・雷・ポストエフェクト
@@ -55,7 +55,7 @@ test('地形: 追加・ブラシで盛る/下げる・Undo・作り直す・物�
   await page.getByTestId('tab-inspector').tap();
   await expect(page.getByTestId('sec-terrain')).toBeVisible();
   await page.getByTestId('terrain-brush').tap();
-  await expect(page.getByTestId('sheet')).toHaveAttribute('data-state', 'closed');
+  await waitSheetClosed(page);
   await expect(page.getByTestId('brush-bar')).toHaveClass(/show/);
   await expect(page.getByTestId('brush-tool-raise')).toHaveAttribute('aria-pressed', 'true');
   // ブラシ中はギズモを出さない

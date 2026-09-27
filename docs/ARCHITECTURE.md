@@ -159,6 +159,18 @@ GameRuntime ─┬─ GameState     スコア・お金・HP・残機・持ち物
   `EventSystem.runActions()` で実行するので、待つ・会話もイベントと同じ)。会話などでゲームが止まっている間は進まない。
   再生中はプレイヤーの入力を止め (`GameRuntime.input` が空の入力を返す)、GameUI に黒帯とスキップボタンを出す
 
+### データの管理 (Phase 9)
+
+- ZIP: `core/zip.ts` (依存なしの作成・読み込み。圧縮はブラウザの `CompressionStream('deflate-raw')` があれば使う。
+  CRC-32 で中身を確かめる)。Phase 10 のゲームの書き出しでも使う
+- パッケージ: `core/projectPackage.ts` (`pocket-package.json` + `project.json` + `assets/<ID>`。複数のプロジェクトは
+  `projects/<ID>/` のフォルダ)。読み込むと新しい ID のプロジェクトとして追加する
+- バックアップ: `storage/BackupStore.ts` (IndexedDB の `backups` ストア、キーは「プロジェクト ID:時刻」)。
+  `ProjectService.save()` の後に自動バックアップ (10 分ごと)、古い自動バックアップから消して最大 12 個
+- 保存領域: `navigator.storage.estimate()` / `persist()`
+- 他のプロジェクトから取り込む: `AssetService.importFromProject()` (部品の中のアセットの参照をたどって一緒に取り込み、
+  ID が重なるものは付け替えて部品の中の参照も置き換える)
+
 ## コンポーネント (components/)
 
 `registerComponent()` で定義を登録すると、Inspector の UI (プロパティの種類から自動生成) と
@@ -179,7 +191,7 @@ registerComponent({
 
 ## 保存 (storage/, app/ProjectService.ts)
 
-- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (読み込んだファイルの本体)
+- IndexedDB (`pocket-engine` DB): `projects` (本体)、`meta` (一覧用の軽量情報 + サムネイル)、`assets` (読み込んだファイルの本体)、`backups` (自動 / 手動バックアップ)
 - IndexedDB が使えなければ localStorage、それも無理ならメモリ (警告を表示)
 - 変更の 2.5 秒後に自動保存。タブが裏に回ったとき (`visibilitychange` / `pagehide`) にも保存
 - エディタ設定 (グリッド・スナップなど) はプロジェクトとは別に localStorage に保存

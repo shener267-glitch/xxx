@@ -25,6 +25,8 @@ export interface EditorSettings {
   previewEffects: boolean;
   /** Play をタイトル画面から始める */
   playFromTitle: boolean;
+  /** 保存のときに自動でバックアップを作る (10 分ごと) */
+  autoBackup: boolean;
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   showHints: true,
   previewEffects: false,
   playFromTitle: false,
+  autoBackup: true,
 };
 
 const KEY = 'pocket-engine:settings';

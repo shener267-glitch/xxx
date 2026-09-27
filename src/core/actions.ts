@@ -601,6 +601,18 @@ export function deleteScene(editor: Editor, id: string): boolean {
   return true;
 }
 
+/** シーンの並び順を変える (dir = -1 で前へ、1 で後ろへ) */
+export function moveScene(editor: Editor, id: string, dir: -1 | 1): boolean {
+  const p = editor.project;
+  const i = p.scenes.findIndex((s) => s.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= p.scenes.length) return false;
+  [p.scenes[i], p.scenes[j]] = [p.scenes[j], p.scenes[i]];
+  editor.markDirty();
+  editor.events.emit('project-changed', undefined);
+  return true;
+}
+
 export function setStartScene(editor: Editor, id: string): void {
   if (!editor.findScene(id)) return;
   editor.project.startSceneId = id;

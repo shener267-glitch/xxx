@@ -87,7 +87,7 @@ export class App implements AppContext {
         else this.showAddSheet({ x, y });
       },
     });
-    this.projects = new ProjectService(storage.projects, ed, () => this.viewport, this.assets);
+    this.projects = new ProjectService(storage.projects, ed, () => this.viewport, this.assets, storage.backups);
     // 3D モデルの小さな画像はエンジンのレンダラーで作る
     this.assets.thumbnailer = (obj) => renderThumbnail(this.engine.renderer, obj);
     this.play = new PlayController(ed, this.viewport, runtimeOverlay);

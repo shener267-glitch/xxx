@@ -3,6 +3,7 @@ import type { EditorSettings, PlayCameraMode, QualityLevel } from '../../core/se
 import { DEFAULT_SETTINGS } from '../../core/settings';
 import { estimateStorage } from '../../storage/ProjectRepository';
 import type { AppContext } from '../context';
+import { exportProjectZip, openBackupsModal, storageSummary } from '../dataManager';
 import { button, h } from '../dom';
 import { confirmDialog, toast } from '../overlays';
 import { fieldRow, NumberField, section, Select, TextField, Toggle } from '../widgets';
@@ -113,12 +114,15 @@ export class SettingsPanel {
         fieldRow('ゲーム名', projectName.el),
         fieldRow('開始シーン', startScene, { hint: '書き出したゲームで最初に開く' }),
         fieldRow('自動保存', toggle('autosave', '自動保存')),
+        fieldRow('自動バックアップ', toggle('autoBackup', '自動バックアップ', 'set-auto-backup'), { hint: '保存のとき 10 分ごと (最大 12 個)' }),
         fieldRow('保存先', storageInfo),
+        storageSummary(ctx),
         h(
           'div',
           { class: 'button-row' },
           button({ icon: 'folder', label: 'プロジェクト一覧', class: 'secondary', onClick: () => ctx.openProjects() }),
-          button({ icon: 'download', label: '書き出し', class: 'secondary', onClick: () => ctx.projects.exportProject() }),
+          button({ icon: 'download', label: '書き出し (.zip)', class: 'secondary', testId: 'set-export-zip', onClick: () => void exportProjectZip(ctx) }),
+          button({ icon: 'reset', label: 'バックアップ', class: 'secondary', testId: 'set-backups', onClick: () => openBackupsModal(ctx) }),
         ),
       ]),
       section('その他', 'info', [
@@ -138,7 +142,7 @@ export class SettingsPanel {
             },
           }),
         ),
-        h('p', { class: 'field-note', text: 'Pocket Engine v0.1 (Phase 1) — データはこの端末のブラウザ内にのみ保存されます。大切なプロジェクトは「書き出し」でファイルに保存してください。' }),
+        h('p', { class: 'field-note', text: 'Pocket Engine — データはこの端末のブラウザ内にのみ保存されます。大切なプロジェクトは「書き出し (.zip)」でファイルに保存するか、プロジェクト一覧の「すべてバックアップ」を使ってください。' }),
       ]),
     );
 

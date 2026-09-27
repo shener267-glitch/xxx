@@ -1,8 +1,8 @@
 import type { Editor } from '../core/Editor';
 import { logger } from '../core/logger';
 import type { Object3D } from 'three';
-import type { AssetEntry, AssetInfo, AssetType } from '../core/types';
-import { createId, uniqueName } from '../core/util';
+import type { AssetEntry, AssetInfo, AssetType, PrefabEntry, ProjectData } from '../core/types';
+import { clone, createId, uniqueName } from '../core/util';
 import { invalidateAssetTexture, setAssetResolver } from '../engine/textures';
 import { registerFont } from '../engine/fonts';
 import { invalidateModel, parseModel } from '../engine/models';
@@ -395,6 +395,74 @@ export class AssetService {
     this.changed();
     // 表示中のシーンを更新
     this.editor.events.emit('scene-loaded', this.editor.sceneData);
+  }
+
+  // ------------------------------------------------------------------
+  // 他のプロジェクトから取り込む・整理
+  // ------------------------------------------------------------------
+
+  /** 使われていないアセット */
+  unused(): AssetEntry[] {
+    return this.list.filter((a) => this.usages(a.id) === 0);
+  }
+
+  /** 使われていないアセットをまとめて削除する (戻り値: 削除した数) */
+  async removeUnused(): Promise<number> {
+    const targets = this.unused();
+    for (const a of targets) await this.remove(a.id);
+    return targets.length;
+  }
+
+  /**
+   * 別のプロジェクトのアセットと部品 (Prefab) を今のプロジェクトへ取り込む。
+   * 部品が使っているアセットも一緒に取り込む。同じ ID のものは新しい ID にして重ならないようにする
+   */
+  async importFromProject(src: ProjectData, assetIds: string[], prefabIds: string[]): Promise<{ assets: number; prefabs: number }> {
+    const p = this.editor.project;
+    const prefabs = src.prefabs.filter((x) => prefabIds.includes(x.id));
+    // 部品の中で使っているアセット
+    const wanted = new Set(assetIds);
+    const srcIds = new Set(src.assets.map((a) => a.id));
+    const scan = (v: unknown) => {
+      if (typeof v === 'string' && srcIds.has(v)) wanted.add(v);
+      else if (Array.isArray(v)) v.forEach(scan);
+      else if (v && typeof v === 'object') Object.values(v).forEach(scan);
+    };
+    prefabs.forEach((pf) => scan(pf.entities));
+    // ID の付け替え (今のプロジェクトに同じ ID があれば新しくする)
+    const remap = new Map<string, string>();
+    let added = 0;
+    for (const a of src.assets) {
+      if (!wanted.has(a.id)) continue;
+      const blob = await this.store.get(src.id, a.id);
+      if (!blob) {
+        logger.warn(`アセット「${a.name}」の本体が見つかりません`, 'アセット');
+        continue;
+      }
+      const id = p.assets.some((x) => x.id === a.id) ? createId('a') : a.id;
+      remap.set(a.id, id);
+      await this.store.put(p.id, id, blob);
+      this.cache.set(id, blob);
+      const names = p.assets.map((x) => x.name);
+      p.assets.push({ ...clone(a), id, name: uniqueName(a.name, names) });
+      added++;
+    }
+    const replaceIds = (v: unknown): unknown => {
+      if (typeof v === 'string') return remap.get(v) ?? v;
+      if (Array.isArray(v)) return v.map(replaceIds);
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, replaceIds(x)]));
+      return v;
+    };
+    const names = p.prefabs.map((x) => x.name);
+    for (const pf of prefabs) {
+      const copy = replaceIds(clone(pf)) as PrefabEntry;
+      copy.id = p.prefabs.some((x) => x.id === pf.id) ? createId('pf') : pf.id;
+      copy.name = uniqueName(pf.name, names);
+      names.push(copy.name);
+      p.prefabs.push(copy);
+    }
+    if (added || prefabs.length) this.changed();
+    return { assets: added, prefabs: prefabs.length };
   }
 
   /** 書き出し用: すべてのアセットを dataURL にする */
