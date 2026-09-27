@@ -27,6 +27,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     launchOptions: {
       executablePath,
+      // ロケールが未設定の環境では日本語のファイル名のダウンロードが "download" になるため UTF-8 を指定する
+      env: { ...process.env, LANG: process.env.LANG || 'C.UTF-8' },
       // CI などの GPU の無い環境でも WebGL を使えるようにする
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
     },
