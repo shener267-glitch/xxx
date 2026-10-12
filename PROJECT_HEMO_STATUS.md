@@ -1,6 +1,37 @@
 # Project HEMO 状態
 
-## Phase 1
+## Phase 2
+
+### 実施した変更
+- Phase 1のカプセル仮モデルを、人体パーツ（胴体、頭部、髪、衣服、左右の腕・脚）で構成した観察用の仮リグへ拡張。
+- 人体パーツを親子階層に分離し、`hemo-human`、`skin`、`hair`、`clothing`、骨格部位タグを付与。
+- 既存のGLB/glTF読み込み、SkinnedMeshのSkeletonUtils複製、AnimationMixer基盤を確認。将来の高品質モデル差し替えに影響しない構成を維持。
+
+### 変更ファイル
+- `src/core/project.ts`
+- `PROJECT_HEMO_STATUS.md`
+
+### 完了した機能
+- 実験室内で人体型の仮モデルを表示
+- 頭部・髪・衣服を含む観察用モデル
+- 人体パーツの階層化と部位タグ
+- 既存のGLB/glTFモデル読み込み・スキニング・アニメーション再生基盤の再利用
+
+### テストと結果
+- `npm run typecheck` 成功。
+- `npm run test -- --run` 成功（130 tests）。
+- `npm run build` 成功（editor/player両方）。
+- モバイルブラウザ確認済み（390x844、dark、WebGL）。人体型仮リグと実験室シーンを確認。
+
+### 既知の不具合・制約
+- 仮モデルはプリミティブ構成で、リアルな顔・肌・髪・衣服の高品質表現ではない。
+- 仮リグ自体のボーンアニメーションは未実装。GLB/glTF側のAnimationMixer対応は既存基盤を利用可能。
+- 物理演算、血液・血痕表現、実験条件UIは未実装。
+
+### 次に実施すべきこと
+- GLB人体モデルのアセット登録と読み込み確認。
+- Phase 3で物理演算とラグドールを追加。
+
 
 ### 実施した変更
 - GitHubリポジトリの現在のPocket Engineを確認し、既存のThree.js描画、SceneBuilder、SceneEnvironment、EditorCamera、ViewportInput、選択処理を流用。

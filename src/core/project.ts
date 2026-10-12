@@ -84,10 +84,67 @@ export function createSampleScene(name = 'HEMO 実験室'): SceneData {
   platform.mesh!.material.color = '#24515a';
   platform.locked = true;
 
-  const specimen = createEntity('capsule', '実験対象・仮モデル');
-  specimen.transform.position = [0, 1.15, -1.5];
-  specimen.transform.scale = [0.9, 2.2, 0.9];
-  specimen.mesh!.material.color = '#d58f83';
+  for (const e of [floor, backWall, leftWall, rightWall, platform]) addRoot(scene, e);
+
+  // Phase 2: 仮モデルは人体パーツを独立エンティティとして構成する。
+  // 将来 GLB/GLTF のスキンメッシュへ差し替えても、観察台やカメラに影響しない。
+  const human = createEntity('empty', '人体モデル・仮リグ');
+  human.transform.position = [0, 0, -1.5];
+  human.tags.push('hemo-human', 'rig-root');
+
+  const torso = createEntity('capsule', '人体・胴体');
+  torso.transform.position = [0, 1.55, 0];
+  torso.transform.scale = [0.72, 1.25, 0.45];
+  torso.mesh!.material.color = '#b97870';
+  torso.tags.push('hemo-human', 'skin');
+
+  const head = createEntity('sphere', '人体・頭部');
+  head.transform.position = [0, 2.65, 0];
+  head.transform.scale = [0.42, 0.5, 0.4];
+  head.mesh!.material.color = '#d79a8d';
+  head.tags.push('hemo-human', 'head');
+
+  const hair = createEntity('sphere', '人体・髪');
+  hair.transform.position = [0, 2.88, -0.03];
+  hair.transform.scale = [0.44, 0.25, 0.42];
+  hair.mesh!.material.color = '#1e2028';
+  hair.tags.push('hemo-human', 'hair');
+
+  const shirt = createEntity('cube', '人体・衣服');
+  shirt.transform.position = [0, 1.55, 0];
+  shirt.transform.scale = [0.78, 0.9, 0.5];
+  shirt.mesh!.material.color = '#263f61';
+  shirt.tags.push('hemo-human', 'clothing');
+
+  const leftArm = createEntity('cylinder', '人体・左腕');
+  leftArm.transform.position = [-0.62, 1.55, 0];
+  leftArm.transform.rotation = [0, 0, -12];
+  leftArm.transform.scale = [0.13, 1.25, 0.13];
+  leftArm.mesh!.material.color = '#c8897d';
+  leftArm.tags.push('hemo-human', 'bone-left-arm');
+
+  const rightArm = createEntity('cylinder', '人体・右腕');
+  rightArm.transform.position = [0.62, 1.55, 0];
+  rightArm.transform.rotation = [0, 0, 12];
+  rightArm.transform.scale = [0.13, 1.25, 0.13];
+  rightArm.mesh!.material.color = '#c8897d';
+  rightArm.tags.push('hemo-human', 'bone-right-arm');
+
+  const leftLeg = createEntity('cylinder', '人体・左脚');
+  leftLeg.transform.position = [-0.24, 0.65, 0];
+  leftLeg.transform.scale = [0.18, 1.55, 0.18];
+  leftLeg.mesh!.material.color = '#202a43';
+  leftLeg.tags.push('hemo-human', 'bone-left-leg');
+
+  const rightLeg = createEntity('cylinder', '人体・右脚');
+  rightLeg.transform.position = [0.24, 0.65, 0];
+  rightLeg.transform.scale = [0.18, 1.55, 0.18];
+  rightLeg.mesh!.material.color = '#202a43';
+  rightLeg.tags.push('hemo-human', 'bone-right-leg');
+
+  const humanParts = [torso, head, hair, shirt, leftArm, rightArm, leftLeg, rightLeg];
+  for (const part of humanParts) addChild(scene, human, part);
+  addRoot(scene, human);
 
   const workLight = createEntity('light-point', '検査ライト');
   workLight.transform.position = [0, 4.5, -1.5];
@@ -107,7 +164,7 @@ export function createSampleScene(name = 'HEMO 実験室'): SceneData {
   camera.transform.position = [0, 3.5, 9];
   camera.transform.rotation = [-15, 0, 0];
 
-  for (const e of [floor, backWall, leftWall, rightWall, platform, specimen, workLight, rimLight, camera]) addRoot(scene, e);
+  for (const e of [workLight, rimLight, camera]) addRoot(scene, e);
   return scene;
 }
 
@@ -115,6 +172,12 @@ function addRoot(scene: SceneData, e: EntityData): void {
   e.parent = null;
   scene.entities[e.id] = e;
   scene.roots.push(e.id);
+}
+
+function addChild(scene: SceneData, parent: EntityData, child: EntityData): void {
+  child.parent = parent.id;
+  scene.entities[child.id] = child;
+  parent.children.push(child.id);
 }
 
 export function createProject(name = '新しいゲーム', sample = true): ProjectData {

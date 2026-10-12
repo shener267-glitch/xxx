@@ -258,7 +258,7 @@ function repairHierarchy(scene: SceneData): void {
     if (!e || seen.has(id)) return false;
     seen.add(id);
     e.parent = parent;
-    e.children = e.children.filter((c) => visit(c, id));
+    e.children = [...new Set(e.children)].filter((c) => visit(c, id));
     return true;
   };
   for (const id of scene.roots) if (visit(id, null)) newRoots.push(id);
