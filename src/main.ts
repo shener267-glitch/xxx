@@ -75,6 +75,16 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // Project HEMO (?mode=hemo): 通常のエディタとは別に、実験室だけを起動する
+  if (location.search.includes('mode=hemo') || location.hash === '#hemo') {
+    const hemo = await import('./hemo/boot');
+    if (hemo.isHemoMode()) {
+      root.innerHTML = '';
+      hemo.bootHemo(root);
+      return;
+    }
+  }
+
   registerBuiltinComponents();
   const storage = await createStorage();
   const repo = storage.projects;
