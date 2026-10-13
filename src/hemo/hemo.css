@@ -1,0 +1,85 @@
+/* Project HEMO 専用スタイル (通常のエディタには影響しない) */
+.hemo-root {
+  display: flex;
+  flex-direction: column;
+  height: var(--app-height, 100dvh);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+}
+.hemo-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--topbar-h);
+  padding: var(--safe-top) calc(10px + var(--safe-right)) 0 calc(12px + var(--safe-left));
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.hemo-title { font-size: 16px; letter-spacing: 0.04em; }
+.hemo-exp { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 14px; }
+.hemo-save { color: var(--text-3); font-size: 12px; }
+.hemo-viewport { position: relative; flex: 1; min-height: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hemo-viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.hemo-selection, .hemo-fps {
+  position: absolute;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(20, 22, 27, 0.72);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+.hemo-selection { left: 10px; top: 10px; }
+.hemo-fps { right: 10px; top: 10px; font-family: var(--mono); color: var(--text-2); }
+.hemo-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px calc(10px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(10px + var(--safe-left));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.hemo-btn {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.hemo-btn:active { background: var(--panel-3); }
+.hemo-menu-btn { flex: 0 0 48px; padding: 0; font-size: 20px; }
+.hemo-menu {
+  position: absolute;
+  right: calc(10px + var(--safe-right));
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.hemo-menu[hidden] { display: none; }
+.hemo-menu-item {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.hemo-menu-item:active { background: var(--panel-3); }
