@@ -30,7 +30,7 @@ export class HemoApp {
   private showFps = true;
 
   constructor(
-    private root: HTMLElement,
+    root: HTMLElement,
     quality: QualityLevel,
   ) {
     root.innerHTML = '';
